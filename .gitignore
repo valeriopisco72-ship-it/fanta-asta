@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.log
+
+# --- dati di terzi: NON si ridistribuiscono ---
+# Il tool gira senza: `python esempio.py` genera un listone finto, e le
+# istruzioni per scaricare i dati veri stanno nel README. Chi clona porta i
+# propri file. Vedi la sezione "Dati e fonti".
+quotazioni_ufficiali.csv
+listone_completo.csv
+statistiche_*.csv
+squadre_*.csv
+estero_*.csv
+titolari.csv
+aggiornamenti.log

@@ -1,0 +1,26 @@
+{
+ "venduti": [
+  {
+   "nome": "AGiocatore004",
+   "prezzo": 130.0,
+   "mio": false
+  },
+  {
+   "nome": "AGiocatore008",
+   "prezzo": 125.0,
+   "mio": false
+  },
+  {
+   "nome": "AGiocatore015",
+   "prezzo": 48.0,
+   "mio": true
+  }
+ ],
+ "mio_budget": 452.0,
+ "miei": [
+  {
+   "nome": "AGiocatore015",
+   "prezzo": 48.0
+  }
+ ]
+}
