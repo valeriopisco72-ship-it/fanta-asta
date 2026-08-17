@@ -1,13 +1,14 @@
 # fanta-asta
 
-> **Stato al 17/08/2026** — 87/87 test verdi.
+> **Stato al 17/08/2026** — 93/93 test verdi.
 >
 > | | |
 > |---|---|
 > | ✅ **Prezzi d'asta** tarati sulla tua lega (VORP, somma zero, termometro live) | solido, testato |
 > | ✅ **Titolarità osservata** dalle probabili formazioni (`formazioni.py`) | +22% di accordo col mercato |
 > | ✅ **Analisi calcistica** (xG/xA, contesto tattico, allenatori) | solido, con limiti dichiarati |
-> | ⚠️ **Riparto del budget fra reparti** | **delegato al mercato**: il modello non ha edge |
+> | ✅ **Pavimento di sostituzione** | **contato**, non più stimato: i titolari veri di Serie A |
+| ⚠️ **Riparto del budget fra reparti** | **delegato al mercato**: il modello non ha edge |
 > | ❌ **Previsione dei breakout** | **misurato lift 0,25x: non funziona** |
 >
 > Le ultime due righe non sono lavori incompiuti: sono risultati negativi verificati.
@@ -189,39 +190,56 @@ scelto a mano sbagliava di 1.126 crediti su 5.000, quasi tutti sui portieri (827
 
 Prima di fidarti di un prezzo, gira comunque il tool con almeno due valori e guarda quanto si muove.
 
-### Risultato negativo n.2: il pavimento in qualità (17/08/2026)
+### Il pavimento di sostituzione: erano due difetti, non uno (17/08/2026)
 
-`--calibra` stampa anche la **composizione del pavimento**, ed è lì che si vede il meccanismo:
+Il primo tentativo — soglia = fm del rango × presenze di un titolare — è stato **provato e
+scartato**: sistemava i portieri (827 → 358 contro 297 di mercato) e rompeva gli attaccanti
+(1.917 → 1.279 contro 2.051), perché il budget è a somma zero. Restava la diagnosi senza la cura.
 
-```
-    ruolo     rango    punti     fm  presenze
-    PORTIER      17       52   4.75      11.0     <- il pavimento è un part-time
-    DIFENSO      48      157   6.40      24.5
-    CENTROC      54      153   6.22      24.6
-    ATTACCA      40       90   6.90      13.0     <- anche qui
-```
+La cura è arrivata guardando **cosa c'era dentro la lista ordinata**, non come la si tagliava.
 
-Dal rango 10 al 20 i punti dei portieri crollano **−83%** (153 → 26) mentre la **fantamedia resta
-piatta** (5,11 → 5,17): il crollo è tutto nelle presenze. Il pavimento in *punti totali* misura
-quanto ha giocato la riserva l'anno scorso, non quanto vale se la schieri — e se la schieri, gioca.
+**Difetto 1 — due unità di misura nello stesso campo.** 144 giocatori su 503 (il 29%) non hanno
+storico, e per loro `punti` conteneva la **quotazione** (scala 1-35) accanto a punti veri
+(70-200). Non è una stima bassa: è un'unità di misura diversa — lo stesso errore che il README
+documenta per lo `scarto`. Conseguenze: quei 144 finivano sotto a *chiunque* per costruzione — e
+sono i nuovi acquisti, cioè i più cari del listone — e il pavimento ci atterrava sopra (il primo
+portiere senza storico stava al rango 30, cioè esattamente dove `--peso-panchina 1.0` lo mandava,
+facendolo crollare a 4 punti).
+Corretto riportandoli sulla scala giusta **per quantile** (non con un fattore: la relazione
+quota-punti non passa per l'origine) e **dentro lo stesso stato di titolarità**, altrimenti la
+riscalatura sovrascriveva i punti e buttava via proprio l'XI.
 
-Correzione provata: soglia = **fm del rango × presenze di un titolare**. Per ruolo, a peso 0.35:
+**Difetto 2 — il pavimento era stimato invece che contato.** `titolari.csv` dice quanti titolari
+esistono davvero in Serie A per ruolo: **20 portieri, 81 difensori, 79 centrocampisti, 34
+attaccanti**. Se in Serie A giocano 20 portieri e tu ne schieri 10, la tua alternativa è il 20°
+— non il 30° (una riserva che non gioca mai) né il 10° (che è già un titolare di prima fascia).
+Il numero è **contato**, non scelto: per questo sostituisce `PESO_PANCHINA` invece di tararlo.
 
-| | attuale | pavimento-qualità | mercato (FVM) | |
+La conferma che non è fitting: cercando a forza il pavimento che minimizza lo scarto dal mercato,
+il rango ottimo per i portieri viene **20** — esattamente il conteggio. Su difensori (68 vs 80) e
+centrocampisti (72 vs 79) cade entro il rumore. `PESO_PANCHINA` resta solo come ripiego quando
+`titolari.csv` non c'è.
+
+**Misurato contro la versione pubblicata**, sui 250 giocatori che la lega compra:
+
+| | ordinamento (Spearman vs FVM) | | dispersione (errore medio, crediti) | |
 |---|---|---|---|---|
-| P | 827 | **358** | 297 | errore 530 → **61** ✅ |
-| D | 979 | 1.181 | 947 | 32 → 234 ❌ |
-| C | 1.277 | 2.182 | 1.705 | 428 → 477 ❌ |
-| A | 1.917 | 1.279 | 2.051 | 134 → **772** ❌ |
+| | prima | dopo | prima | dopo |
+| Portieri | 0,624 | **0,696** | 3,28 | 3,48 |
+| Difensori | 0,330 | **0,495** | 7,49 | **5,20** |
+| Centrocampisti | 0,423 | **0,547** | 12,58 | **10,74** |
+| Attaccanti | 0,460 | 0,351 | 30,72 | **22,49** |
+| **media** | 0,459 | **0,522** | 13,52 | **10,37** |
 
-**Scartata.** Il budget è a somma zero: i 469 crediti tolti ai portieri finiscono sugli altri
-ruoli e ci finiscono male (scarto totale 1.126 → 1.544). La diagnosi è giusta, la correzione
-isolata no. Il codice porta la nota `ponytail:` in `vorp()`, così `/ponytail-debt` la ritrova.
+**Il costo, dichiarato: gli attaccanti perdono sull'ordinamento** (0,460 → 0,351). Isolando le due
+correzioni si vede perché: la riscalatura da sola li porta a **0,493**, il pavimento contato li
+riporta a 0,351. Per gli attaccanti il conteggio (34 titolari veri) è più *basso* del pavimento
+vecchio (rango 40), quindi più attaccanti finiscono con VORP zero e pareggiano in fondo. È il
+ruolo dove i due difetti si ostacolano, e non l'ho risolto: l'ho misurato e lasciato scritto.
 
-**Cosa la riapre:** le presenze **attese 2026/27** (probabili formazioni), non un'altra taratura di
-`PESO_PANCHINA`. Finché il tool deduce la titolarità dalle presenze dell'anno scorso, un portiere
-promosso a titolare e uno retrocesso a riserva sono indistinguibili — ed è **quella** l'informazione
-mancante, non un parametro.
+Un'ipotesi intermedia — che i pareggi della mappatura a quantile spiegassero il calo — è stata
+**testata e falsificata** (interpolare non ha spostato lo Spearman di un millesimo), quindi
+l'interpolazione è stata tolta invece di essere tenuta come spiegazione che suona bene.
 
 ## Analisi tecnico-tattica di squadre e allenatori
 

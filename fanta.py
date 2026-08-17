@@ -42,6 +42,7 @@ Uso:
     python fanta.py --quot quotazioni.xlsx --live asta.json  # durante l'asta
 """
 import argparse
+import bisect
 import csv
 import json
 import os
@@ -443,6 +444,51 @@ def valuta(dati, titolari=None):
                 g['pres_attese'] = PRES_ATTESE[g['ruolo']] * g['titolarita']
             g['punti'] = fm * g['pres_attese']
             g['base'] = 'storico'
+    # --- le due scale nella stessa lista ---
+    # Chi non ha storico riceveva 'punti' = QUOTAZIONE (scala 1-35) accanto a
+    # punti veri (70-200): non una stima bassa, un'unita' di misura diversa. E'
+    # lo stesso errore che il README documenta per lo 'scarto' ("+71 su Lautaro"),
+    # e qui costava caro due volte: i 144 senza storico - cioe' i nuovi acquisti,
+    # i piu' costosi del listone - finivano sotto a chiunque, e il PAVIMENTO di
+    # sostituzione atterrava su di loro (primo portiere "quotazione" al rango 30,
+    # cioe' esattamente dove il peso-panchina lo mandava) crollando a ~4 punti.
+    #
+    # Si riportano sulla scala giusta per QUANTILE, non con un fattore: la
+    # relazione quota-punti non passa per l'origine, e moltiplicare avrebbe dato
+    # a un nuovo acquisto da 30 crediti piu' punti del miglior giocatore di A.
+    # La riscalatura va fatta DENTRO lo stesso stato di titolarita': un nuovo
+    # acquisto titolare va confrontato con i titolari, non con l'intera lista -
+    # altrimenti la riscalatura sovrascrive i punti e butta via proprio l'XI,
+    # cioe' l'informazione migliore che abbiamo su di lui.
+    def _stato(g):
+        return titolari is not None and g['nome'].strip().lower() in titolari
+
+    for r in SLOT:
+        quote = sorted(g['quota'] for g in G if g['ruolo'] == r)
+        for dentro in (True, False):
+            st = sorted(g['punti'] for g in G if g['ruolo'] == r
+                        and g.get('base') == 'storico' and _stato(g) == dentro)
+            qu = [g for g in G if g['ruolo'] == r
+                  and g.get('base') == 'quotazione' and _stato(g) == dentro]
+            if len(st) < 5 or not qu:
+                continue
+            for g in qu:
+                # percentile della sua quotazione dentro il ruolo -> punti allo
+                # stesso percentile fra chi lo storico ce l'ha, a pari titolarita'
+                pc = bisect.bisect_left(quote, g['quota']) / max(1, len(quote) - 1)
+                g['punti'] = st[min(int(pc * (len(st) - 1)), len(st) - 1)]
+                g['base'] = 'quotazione riscalata'
+            if titolari is None:
+                break
+
+    if titolari is not None:
+        # Quanti titolari ESISTONO davvero in Serie A per ruolo. Non e' una
+        # scelta: e' un conteggio sugli XI delle 20 squadre. Serve al pavimento.
+        dati['titolari_serie_a'] = {
+            r: sum(1 for g in G
+                   if g['ruolo'] == r and g['nome'].strip().lower() in titolari)
+            for r in SLOT}
+
     dati['quota_rif'] = quota_rif
     return dati
 
@@ -472,6 +518,29 @@ def vorp(dati, presi=None):
         # verra' SCHIERATO. Chi compri e non metti mai in campo non e' la tua
         # alternativa - la tua alternativa e' il peggior titolare disponibile.
         # Fra i due estremi si interpola con PESO_PANCHINA.
+        # 🔑 Il pavimento e' dove FINISCONO I TITOLARI VERI del campionato.
+        # Se in Serie A giocano 20 portieri e tu ne schieri 10, la tua
+        # alternativa e' il 20esimo - non il 30esimo (una riserva che non gioca
+        # mai) ne' il 10esimo (che e' gia' un titolare di prima fascia).
+        # Il numero e' CONTATO sugli XI, non scelto: e' il motivo per cui questo
+        # sostituisce PESO_PANCHINA invece di tararlo. Verificato il 17/08/2026
+        # sui quattro ruoli contro lo split di mercato: sui portieri il rango
+        # ottimo misurato e' 20 ed e' esattamente il conteggio.
+        veri = dati.get('titolari_serie_a', {}).get(r)
+        if veri:
+            rif = min(veri, SLOT[r] * SQUADRE)
+            if SLOT[r] * SQUADRE > 0:
+                rif *= residui / float(SLOT[r] * SQUADRE)
+            idx = min(int(round(rif)), len(disponibili)) - 1
+            soglia = disponibili[idx]['punti'] if idx >= 0 else disponibili[-1]['punti']
+            for g in disponibili:
+                g['vorp'] = max(0.0, g['punti'] - soglia)
+            for g in (x for x in G if x['ruolo'] == r and x['nome'] in fuori):
+                g['vorp'] = 0.0
+            dati.setdefault('soglie', {})[r] = soglia
+            dati.setdefault('residui', {})[r] = residui
+            continue
+
         # ponytail: la soglia e' in PUNTI TOTALI, quindi include le presenze
         # dell'anno scorso del rimpiazzo - che per una riserva sono ~2 e non
         # dicono quanto vale. Testato il 17/08/2026 il pavimento in QUALITA'

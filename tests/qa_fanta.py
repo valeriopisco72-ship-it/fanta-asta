@@ -677,6 +677,65 @@ with tempfile.TemporaryDirectory() as tmp:
       d_senza.get('riparto') is None, str(d_senza.get('riparto')), grave=True)
 
 
+# ================================================== 11. le due scale, e il pavimento
+print('\n--- 11. scala dei senza-storico e pavimento osservato ---')
+
+with tempfile.TemporaryDirectory() as tmp:
+    # Listone misto: un terzo delle righe senza fantamedia ne presenze, come il
+    # listone vero (144 su 503 sono nuovi acquisti).
+    base = genera_csv(os.path.join(tmp, 'pieno.csv'))
+    righe = [r.split(';') for r in io.open(base, encoding='utf-8').read().splitlines() if r]
+    for i, r in enumerate(righe[1:], 1):
+        if i % 3 == 0:
+            r[4] = r[5] = ''
+    misto = os.path.join(tmp, 'misto.csv')
+    io.open(misto, 'w', encoding='utf-8').write('\n'.join(';'.join(r) for r in righe))
+
+    d = fanta.valuta(fanta.carica(misto))
+    senza = [g for g in d['giocatori'] if str(g.get('base', '')).startswith('quotazione')]
+    con = [g for g in d['giocatori'] if g.get('base') == 'storico']
+    t('il listone misto ha entrambe le popolazioni', len(senza) > 20 and len(con) > 20,
+      f'{len(senza)} senza / {len(con)} con', grave=True)
+
+    # IL BUG: 'punti' conteneva la quotazione (1-35) accanto a punti veri (70-200),
+    # quindi ogni senza-storico finiva sotto a CHIUNQUE, e il pavimento ci cadeva.
+    peggiore_con = min(g['punti'] for g in con)
+    sopra = [g for g in senza if g['punti'] > peggiore_con]
+    t('i senza-storico NON stanno tutti sotto a chi lo storico ce l ha',
+      len(sopra) > 0, 'tutti sotto: le due scale sono ancora mescolate', grave=True)
+
+    # Monotonia: dentro il ruolo, quotazione piu alta -> punti non minori.
+    rotture = 0
+    for r in 'PDCA':
+        L = sorted((g for g in senza if g['ruolo'] == r), key=lambda x: x['quota'])
+        rotture += sum(1 for a, b2 in zip(L, L[1:]) if b2['punti'] < a['punti'] - 1e-9)
+    t('la riscalatura e monotona nella quotazione', rotture == 0, f'{rotture} inversioni', grave=True)
+
+    # --- pavimento osservato ---
+    G = fanta.carica(misto)['giocatori']
+    finti = {g['nome'].lower() for g in G if g['ruolo'] == 'P'}
+    finti = set(list(sorted(finti))[:14])          # 14 "titolari" di ruolo P
+    d2 = fanta.valuta(fanta.carica(misto), titolari=finti)
+    t('conta i titolari veri per ruolo dagli XI',
+      d2.get('titolari_serie_a', {}).get('P') == 14,
+      str(d2.get('titolari_serie_a')), grave=True)
+
+    fanta.prezzi(fanta.vorp(d2))
+    disp = sorted((g for g in d2['giocatori'] if g['ruolo'] == 'P'), key=lambda x: -x['punti'])
+    atteso = disp[min(14, fanta.SLOT['P'] * fanta.SQUADRE) - 1]['punti']
+    t('il pavimento e il rango dei titolari contati, non PESO_PANCHINA',
+      abs(d2['soglie']['P'] - atteso) < 1e-6,
+      f'{d2["soglie"]["P"]:.1f} invece di {atteso:.1f}', grave=True)
+
+    # CONTROPROVA: senza XI il pavimento torna a dipendere da PESO_PANCHINA.
+    d3 = fanta.prezzi(fanta.vorp(fanta.valuta(fanta.carica(misto))))
+    fanta.PESO_PANCHINA = 1.0
+    d4 = fanta.prezzi(fanta.vorp(fanta.valuta(fanta.carica(misto))))
+    fanta.PESO_PANCHINA = 0.35
+    t('CONTROPROVA: senza XI PESO_PANCHINA muove ancora il pavimento',
+      abs(d3['soglie']['P'] - d4['soglie']['P']) > 1e-6, grave=True)
+
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)
