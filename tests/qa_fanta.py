@@ -395,7 +395,8 @@ import analisi  # noqa: E402
 AV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                   'statistiche_avanzate.csv')
 if not os.path.exists(AV):
-    t('file statistiche avanzate presente', False, AV, grave=True)
+    # Non e' un difetto: i dati di terzi non stanno nel repo (v. README).
+    print('  --   blocco saltato: statistiche_avanzate.csv non presente')
 else:
     av = analisi.carica(AV)
     idx = analisi.indicizza(av)
@@ -478,7 +479,7 @@ import squadre  # noqa: E402
 SQ = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                   'squadre_2025-26.csv')
 if not os.path.exists(SQ):
-    t('file squadre presente', False, SQ, grave=True)
+    print('  --   blocco saltato: squadre_2025-26.csv non presente')
 else:
     sq = squadre.carica(SQ)
     t('carica tutte e 20 le squadre', len(sq) == 20, str(len(sq)), grave=True)
