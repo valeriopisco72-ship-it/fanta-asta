@@ -171,6 +171,40 @@ t('valutazione rapida = esatta quando la panchina e lunga',
 t('la rapida non sottovaluta mai (la panchina corta toglie, non aggiunge)',
   piano_asta.valore_rapido(base, Ep, R) >= piano_asta.valore_rosa(base, Ep, R) - 1e-9)
 
+print('\n[B2] ottimizzatore della rosa')
+Rm = regole.carica_lega(None, {'moduli': ['1-1-1'], 'modificatore': {'attivo': False}, 'panchina': 25})
+slot = {'P': 1, 'D': 2, 'C': 2, 'A': 1}
+E4 = pool_piccolo()
+prezzi = {k: g['prezzo'] for k, g in E4.items()}
+vinc = {'portieri_max': 99, 'fascia_media': (25, 49), 'fascia_media_max': 99, 'scouting_ok': set()}
+ris = piano_asta.ottimizza(E4, prezzi, Rm, 60, slot, vinc)
+bruta = max((c for c in combinazioni(E4, slot) if sum(prezzi[k] for k in c) <= 60),
+            key=lambda c: piano_asta.valore_rapido(list(c), E4, Rm))
+t('su istanza piccola trova l ottimo della forza bruta',
+  abs(ris['valore'] - piano_asta.valore_rapido(list(bruta), E4, Rm)) < 1e-9,
+  f"{ris['valore']:.3f} vs {piano_asta.valore_rapido(list(bruta), E4, Rm):.3f}")
+t('rispetta budget e slot', ris['costo'] <= 60 and sorted(E4[k]['ruolo'] for k in ris['rosa']) == sorted('PDDCCA'))
+t('deterministico a parita di seme', piano_asta.ottimizza(E4, prezzi, Rm, 60, slot, vinc, seme=4) ==
+  piano_asta.ottimizza(E4, prezzi, Rm, 60, slot, vinc, seme=4))
+vp = dict(vinc, portieri_max=2)
+t('vincolo portieri rispettato', sum(prezzi[k] for k in piano_asta.ottimizza(E4, prezzi, Rm, 60, slot, vp)['rosa']
+                                     if E4[k]['ruolo'] == 'P') <= 2)
+fis = [next(k for k in E4 if E4[k]['ruolo'] == 'D')]
+t('i fissati restano, gli esclusi non entrano',
+  set(fis) <= set(piano_asta.ottimizza(E4, prezzi, Rm, 60, slot, vinc, fissati=fis)['rosa']) and
+  not set(fis) & set(piano_asta.ottimizza(E4, prezzi, Rm, 60, slot, vinc, esclusi=fis)['rosa']))
+t('budget minimo: 6 slot con 6 crediti -> tutti da 1 credito se esistono, nessuna eccezione',
+  piano_asta.ottimizza(E4, {k: 1.0 for k in E4}, Rm, 6, slot, vinc)['costo'] == 6)
+vm = dict(vinc, fascia_media=(15, 49), fascia_media_max=0)
+t('vincolo fascia media: nessuno fra 15 e 49 se il massimo e 0',
+  all(not 15 <= prezzi[k] <= 49 for k in piano_asta.ottimizza(E4, prezzi, Rm, 60, slot, vm)['rosa']))
+try:
+    piano_asta.ottimizza(E4, prezzi, Rm, 3, slot, vinc)
+    ok = False
+except ValueError as e:
+    ok = 'budget' in str(e) or 'reparto' in str(e)
+t('budget impossibile: errore che dice perche, non una rosa incompleta', ok)
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)
