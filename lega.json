@@ -75,7 +75,34 @@
   "8": "AQ Alessia quondam",
   "9": "Neal tabbon mok",
   "10": "Sparta Roggerdam",
-  "11": "ziopera"
+  "11": "ziopera",
+  "12": "Scasserra FC",
+  "13": "Sbirrodemerda FC",
+  "14": "Spiaze",
+  "15": "FC Sucic",
+  "16": "MUCRE CM",
+  "17": "AQ Alessia quondam",
+  "18": "Neal tabbon mok",
+  "19": "Sparta Roggerdam",
+  "20": "ziopera",
+  "21": "Scasserra FC",
+  "22": "Sbirrodemerda FC",
+  "23": "Spiaze",
+  "24": "FC Sucic",
+  "25": "MUCRE CM",
+  "26": "AQ Alessia quondam",
+  "27": "Neal tabbon mok",
+  "28": "Sparta Roggerdam",
+  "29": "ziopera",
+  "30": "Scasserra FC",
+  "31": "Sbirrodemerda FC",
+  "32": "Spiaze",
+  "33": "FC Sucic",
+  "34": "MUCRE CM",
+  "35": "AQ Alessia quondam",
+  "36": "Neal tabbon mok",
+  "37": "Sparta Roggerdam",
+  "38": "ziopera"
  },
  "_fonte": "Opzioni di Lega osservate nell'app: formato 03/09 e 05/09, modificatori 08/09, soglie gol 21/09/2026",
  "_da_verificare": [
@@ -83,5 +110,10 @@
   "quanti giocatori in panchina (qui 7)",
   "6 politico e riserva d'ufficio non sono modellati (riserva d'ufficio OFF, quindi conta solo il 6 politico)"
  ],
- "_calendario_lega": "chiave = giornata di SERIE A (la 3a di lega e la 6a di Serie A). Coppa Morcone: la 1a coincide con la 6a, stessa formazione"
+ "_calendario_lega": "chiave = giornata di SERIE A (3a di lega = 6a di A, 35a = 38a). Giocate: SA4 Sbirrodemerda 1-1, SA5 Spiaze 1-2. Coppa Morcone: la 1a coincide con la 6a",
+ "giornate_giocate": 5,
+ "file": {
+  "tabella": "statistiche_rose_2026-27.csv",
+  "rose": "rose.csv"
+ }
 }

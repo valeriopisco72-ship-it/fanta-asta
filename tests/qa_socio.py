@@ -657,6 +657,102 @@ t('[misura, dati finti] lo shrinkage sbaglia meno della fantamedia finora', m_s 
 rc, out = lancia('--lega', os.path.join(cart8, 'lega.json'), 'verifica')
 t('socio.py verifica: gira', rc == 0 and 'VERIFICA' in out, out[-300:])
 
+# ================================================== 9. la tabella dell'app come fonte
+print("\n[9] tabella dell'app (MV, FM, FVMp) e scambi che convengono a entrambi")
+
+t('presenze dai decimali: MV 6.62 / FM 7.38 in 5 giornate -> 4 partite',
+  proiezioni.presenze_da_medie(6.62, 7.38, 5) == 4, str(proiezioni.presenze_da_medie(6.62, 7.38, 5)),
+  grave=True)
+t('presenze dai decimali: 6.33 / 6.33 -> 3, 5.3 / 5.2 -> 5, 0 / 0 -> 0',
+  [proiezioni.presenze_da_medie(*x, 5) for x in ((6.33, 6.33), (5.3, 5.2), (0, 0))] == [3, 5, 0],
+  str([proiezioni.presenze_da_medie(*x, 5) for x in ((6.33, 6.33), (5.3, 5.2), (0, 0))]), grave=True)
+t('CONTROPROVA: medie tonde sono ambigue -> meta delle giornate, non 1',
+  proiezioni.presenze_da_medie(6.0, 6.0, 5) == 3, str(proiezioni.presenze_da_medie(6.0, 6.0, 5)))
+
+
+def riga(nome, ruolo, mv, fm, fvm, pv=None, sq='Alfa'):
+    return {'nome': nome, 'ruolo': ruolo, 'squadra': sq, 'mv': mv, 'fm': fm, 'fvm': fvm, 'pv': pv}
+
+
+tab = [riga(f'Medio{i} M.', 'C', 6.0, 5.8 + 0.15 * i, 10 + 2 * i, pv=5) for i in range(10)]
+tab += [riga('Caro C.', 'C', 6.0, 6.5, 80, pv=2), riga('Economico E.', 'C', 6.0, 6.5, 3, pv=2),
+        riga('Mai M.', 'C', None, None, 60, pv=0), riga('Caro5 C.', 'C', 6.0, 6.5, 80, pv=5),
+        riga('Econ5 E.', 'C', 6.0, 6.5, 3, pv=5)]
+Ea = proiezioni.stima_app(tab, giornate=5, R=R)
+g_ = lambda n: Ea[nomi.giocatore(n)]
+t('stesse medie e presenze: chi il mercato valuta di piu (FVMp) ha stima piu alta',
+  g_('Caro C.')['mu'] > g_('Economico E.')['mu'] + 0.2, f"{g_('Caro C.')['mu']:.2f} / {g_('Economico E.')['mu']:.2f}",
+  grave=True)
+t('CONTROPROVA: con piu partite il FVMp pesa meno (la stagione prende il sopravvento)',
+  g_('Caro5 C.')['mu'] - g_('Econ5 E.')['mu'] < g_('Caro C.')['mu'] - g_('Economico E.')['mu'], grave=True)
+t('chi non ha mai preso voto: stima dal mercato, ma probabilita di giocare bassa',
+  g_('Mai M.')['mu'] > Ea['_ruoli']['C']['mu'] and g_('Mai M.')['p'] < 0.2, grave=True)
+t('probabilita di giocare = partite con voto su giornate giocate (5/5 alta, 2/5 media)',
+  g_('Caro5 C.')['p'] > 0.8 and 0.35 < g_('Caro C.')['p'] < 0.6, grave=True)
+t('ogni stima dichiara che viene dalla tabella', 'app' in g_('Caro C.')['fonte'])
+
+tab_csv = scrivi_csv(os.path.join(tmp, 'tab.csv'), [
+    ['FantaSquadra', 'Nome', 'Ruolo', 'Squadra', 'MV', 'FM', 'Costo', 'FVMp'],
+    ['Io', 'Tizio T.', 'A', 'Inter', '6,5', '8', '40', '50'],
+    ['Io', 'Caio C.', 'D', 'Roma', '0', '0', '5', '5']])
+T_ = mercato.carica_tabella(tab_csv)
+t('carica_tabella: fantasquadra, virgola decimale, 0/0 = nessun voto',
+  T_[0]['fantasquadra'] == 'Io' and T_[0]['mv'] == 6.5 and T_[1]['mv'] is None and T_[1]['fvm'] == 5,
+  str(T_), grave=True)
+
+# Scambi che convengono a entrambi. Si vince scambiando ECCEDENZE fra reparti:
+# io ho un quinto centrocampista forte che resta in panchina e una difesa
+# debole; lui il contrario. Il mio C4 (+ un mio D di scarto) per il suo LD4
+# (+ un suo C di scarto) migliora ENTRAMBE le formazioni.
+Rt = regole.carica_lega(None, {'moduli': ['4-4-2'], 'modificatore': {'attivo': False}})
+io = rosa_base()
+lui = [dict(g, k='L' + g['k'], nome='L' + g['nome']) for g in rosa_base()]
+for g in io:
+    if g['k'] in ('C0', 'C1', 'C2', 'C3'):
+        g['mu'] = 7.5                                  # i miei 4 C titolari sono forti...
+next(g for g in io if g['k'] == 'C4')['mu'] = 7.0     # ...quindi il 5o (7.0) resta in panchina
+for g in lui:
+    if g['k'] in ('LD0', 'LD1', 'LD2', 'LD3'):
+        g['mu'] = 7.5                                  # idem lui in difesa
+next(g for g in lui if g['k'] == 'LD4')['mu'] = 7.0   # suo 5o D: forte ma in panchina
+Eall = {g['k']: g for g in io + lui}
+rose_x = {'Io': [g['k'] for g in io], 'Lui': [g['k'] for g in lui]}
+pr_ = mercato.proposte('Io', rose_x, [Eall], Rt, top=1000)
+t('proposta trovata: il mio C in eccesso (+ uno scarto) per il suo D in eccesso',
+  any('C4' in x['dai'] and 'LD4' in x['ricevi'] for x in pr_),
+  str([(x['dai'], x['ricevi']) for x in pr_][:5]), grave=True)
+t('ogni proposta migliora me E migliora lui (senza, non la accetta)',
+  pr_ and all(x['per_me'] > 0 and x['per_lui'] > 0 for x in pr_), grave=True)
+t('la rosa resta 3/8/8/6: stessi ruoli dati e ricevuti',
+  all(sorted(Eall[k]['ruolo'] for k in x['dai']) == sorted(Eall[k]['ruolo'] for k in x['ricevi'])
+      for x in pr_), grave=True)
+furto = mercato.scambio(rose_x['Io'], dai=['D7'], ricevi=['LD4'], Es=[Eall], R=Rt)
+t('CONTROPROVA: il furto (il suo D forte per il mio D peggiore) conviene a me...',
+  furto['delta'] > 0.5, f"{furto['delta']:.2f}", grave=True)
+pr_int = mercato.proposte('Io', rose_x, [Eall], Rt, top=1000, intoccabili={'C4', 'C0'})
+t('capitano e vice (intoccabili) non vengono mai offerti',
+  pr_ and not any({'C4', 'C0'} & set(x['dai']) for x in pr_int), grave=True)
+t('...ma non a lui, quindi NON viene proposto',
+  not any(x['dai'] == ['D7'] and x['ricevi'] == ['LD4'] for x in pr_), grave=True)
+
+tab_lega = os.path.join(tmp, 'lega_tab')
+os.makedirs(tab_lega)
+scrivi_csv(os.path.join(tab_lega, 'tab.csv'),
+           [['FantaSquadra', 'Nome', 'Ruolo', 'Squadra', 'MV', 'FM', 'Costo', 'FVMp']]
+           + [[fs, f'{fs[0]}{r}{i}', r, 'Inter', '6,0', f'{6 + i / 10:.1f}', '5', str(5 + i)]
+              for fs in ('Mia', 'Altra') for r, k in (('P', 3), ('D', 8), ('C', 8), ('A', 6)) for i in range(k)])
+json.dump({'mia': 'Mia', 'giornate_giocate': 5, 'file': {'tabella': 'tab.csv', 'rose': 'tab.csv'},
+           'calendario_lega': {'6': 'Altra'}}, open(os.path.join(tab_lega, 'lega.json'), 'w'))
+Ct = socio.Contesto(os.path.join(tab_lega, 'lega.json'))
+t('socio: senza voti di giornata usa la tabella dell app, giornata = giocate + 1',
+  Ct.tabella and Ct.g == 6 and 'app' in Ct.E_base[Ct.mia[0]]['fonte'] and len(Ct.mia) == 25,
+  f'{Ct.g} {Ct.avvisi}', grave=True)
+rc, out = lancia('--lega', os.path.join(tab_lega, 'lega.json'), 'lega', '--sim', '300', '--giornate', '1')
+t('socio lega: forza delle squadre e P(vittoria) col prossimo avversario',
+  rc == 0 and 'Altra' in out and 'V ' in out, out[-400:], grave=True)
+rc, out = lancia('--lega', os.path.join(tab_lega, 'lega.json'), 'proposte', '--giornate', '1')
+t('socio proposte: gira', rc == 0 and 'SCAMBI' in out, out[-300:])
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)

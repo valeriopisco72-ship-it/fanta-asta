@@ -1,6 +1,6 @@
 # fanta-asta · il socio di fantacalcio
 
-> **Stato al 28/09/2026** — 132/132 test del socio + 68/68 dell'asta verdi
+> **Stato al 28/09/2026** — 150/150 test del socio + 68/68 dell'asta verdi
 > (`python tests/qa_socio.py`, `python tests/qa_fanta.py`).
 >
 > | | |

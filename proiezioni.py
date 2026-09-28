@@ -238,3 +238,75 @@ def per_giornata(E, partite, F, giornata, R):
             g['mu'] += max(g['mu'] - g['mv'], 0.0) * (xf / tipico - 1.0)
             g['xg_fatti'] = xf
     return out
+
+
+# ------------------------------------------------------------------ TABELLA DELL'APP
+
+def presenze_da_medie(mv, fm, giornate):
+    """Partite con voto ricavate dai decimali, quando l'app non le mostra.
+
+    Il voto va a mezzi punti e cosi' il fantavoto (bonus e malus sono multipli
+    di 0,5): quindi MV x n e FM x n devono essere multipli di 0,5. Si prende il
+    piu' piccolo n compatibile. Se lo sono tutti (medie tonde: 6,00 / 6,00) il
+    dato non dice niente e si prende meta' delle giornate. [STIMA] dichiarata:
+    con la colonna Pv dell'app questa funzione non serve.
+    """
+    if not mv:
+        return 0
+    validi = []
+    for n in range(1, giornate + 1):
+        tol = 0.02 * n + 1e-9          # le medie arrivano arrotondate al centesimo
+        if all(abs(x * n * 2 - round(x * n * 2)) <= tol for x in (mv, fm) if x):
+            validi.append(n)
+    if not validi or len(validi) == giornate:
+        return (giornate + 1) // 2
+    return validi[0]
+
+
+def stima_app(righe, giornate, R=None, titolari=None):
+    """Stime dalla tabella della rosa nell'app: MV, FM, FVMp (e Pv se c'e').
+
+    - prior = FVMp: il valore che il mercato da' al giocatore per la stagione.
+      Si porta sulla scala della fantamedia per percentile dentro il ruolo (fra
+      chi ha almeno 3 partite), poi a meta' strada verso la media del ruolo:
+      e' consenso, non misura.
+    - dato = FM e MV di quest'anno, pesati per le partite (K_PRIOR come sopra).
+    - p = partite con voto su giornate giocate, o le probabili se ci sono.
+    Le medie non si possono tagliare sulle code come in stima(): i singoli voti
+    non ci sono. Una doppietta in due partite pesa quindi per intero.
+    """
+    R = R or regole.carica_lega(None)
+    for r in righe:
+        if r.get('pv') is None:
+            r['n'] = presenze_da_medie(r.get('mv'), r.get('fm'), giornate)
+        else:
+            r['n'] = int(r['pv'])
+    ruoli = {}
+    for ru in regole.RUOLI:
+        reg = [r for r in righe if r['ruolo'] == ru and r['n'] >= 3 and r.get('fm')]
+        ruoli[ru] = {'mu': _media([r['fm'] for r in reg]) if len(reg) >= 5 else FM_RUOLO[ru],
+                     'mv': _media([r['mv'] for r in reg]) if len(reg) >= 5 else MV_RUOLO[ru],
+                     'sd': SD_RUOLO[ru], 'sd_v': SD_V_RUOLO,
+                     'fms': sorted(r['fm'] for r in reg),
+                     'fvms': sorted(r['fvm'] for r in righe if r['ruolo'] == ru and r.get('fvm') is not None)}
+    out = {'_ruoli': ruoli}
+    for r in righe:
+        rif = ruoli[r['ruolo']]
+        prior, fonte = rif['mu'], 'app: media di ruolo'
+        if r.get('fvm') is not None and len(rif['fms']) >= 5:
+            pc = bisect.bisect_left(rif['fvms'], r['fvm']) / max(1, len(rif['fvms']) - 1)
+            fm_q = rif['fms'][min(int(pc * (len(rif['fms']) - 1)), len(rif['fms']) - 1)]
+            prior, fonte = 0.5 * fm_q + 0.5 * rif['mu'], 'app: FVMp'
+        n = r['n']
+        mu = (K_PRIOR * prior + n * (r.get('fm') or 0.0)) / (K_PRIOR + n)
+        mv = (K_PRIOR * rif['mv'] + n * (r.get('mv') or 0.0)) / (K_PRIOR + n)
+        k = nomi.giocatore(r['nome'])
+        if titolari is not None:
+            p, fonte_p = (P_XI if k in titolari else P_FUORI), 'probabili'
+        else:
+            p, fonte_p = (n + 1.0) / (giornate + 2.0), f'{n}/{giornate} partite con voto'
+        out[k] = {'k': k, 'nome': r['nome'], 'ruolo': r['ruolo'],
+                  'squadra': nomi.squadra(r['squadra']) if r.get('squadra') else '',
+                  'mu': mu, 'mv': mv, 'sd': rif['sd'], 'sd_v': rif['sd_v'], 'p': p, 'n': n,
+                  'stato': '', 'fonte': f'{fonte} + {n} partite', 'fonte_p': fonte_p}
+    return out

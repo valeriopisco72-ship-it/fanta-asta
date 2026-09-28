@@ -13,6 +13,8 @@ le mette insieme, con un metro solo: **quanto cambia la TUA formazione**.
     python socio.py svincolati --ruolo C
     python socio.py portieri                      # quale schierare, e con chi fare coppia
     python socio.py verifica                      # le stime ci azzeccano? backtest sui tuoi voti
+    python socio.py proposte                      # scambi che convengono a te E all'altro
+    python socio.py lega                          # forza di tutte le squadre, P(vittoria) prossime
     python socio.py --lega altra/lega.json settimana
 
 Tutto si configura in `lega.json` (v. regole.py per le regole, e la sezione
@@ -37,7 +39,8 @@ import schiera
 import voti
 
 FILE_DEFAULT = {'listone': 'listone_completo.csv', 'voti': 'voti', 'calendario': 'calendario.csv',
-                'rose': 'rose.csv', 'titolari': 'titolari.csv', 'squadre': 'squadre_2025-26.csv'}
+                'rose': 'rose.csv', 'titolari': 'titolari.csv', 'squadre': 'squadre_2025-26.csv',
+                'tabella': 'statistiche_rose.csv'}
 XI_VECCHIO = 3   # giorni: oltre, le probabili si dichiarano vecchie
 
 
@@ -61,7 +64,13 @@ class Contesto:
         # voti della stagione in corso
         rec = voti.archivio(self.file['voti'], R=self.R)
         self.S = voti.stagione(rec) if rec else None
-        if not self.S:
+        # in mancanza dei voti di giornata: la tabella delle rose dell'app (MV, FM, FVMp)
+        self.tabella = None
+        if not self.S and os.path.exists(self.file['tabella']):
+            self.tabella = mercato.carica_tabella(self.file['tabella'])
+            if self.listone:
+                self.avvisi.append('tabella dell app in uso: il listone non entra nelle stime')
+        if not self.S and not self.tabella:
             self.avvisi.append('nessun voto di giornata: stime SOLO dal listone '
                                f'(metti i file in {self.file["voti"]}/)')
 
@@ -80,6 +89,8 @@ class Contesto:
             self.g = calendario.prossima(self.partite)
         elif self.S:
             self.g = self.S['giornate'][-1] + 1
+        elif self.R.get('giornate_giocate'):
+            self.g = int(self.R['giornate_giocate']) + 1
         else:
             self.g = 1
 
@@ -97,10 +108,20 @@ class Contesto:
 
         # stime: la prossima giornata usa le probabili e le squalifiche; le
         # successive no (le probabili non valgono piu', la squalifica e' scontata)
-        self.E_ora = proiezioni.stima(S=self.S, listone=self.listone, titolari=self.titolari,
-                                      R=self.R, prossima=True)
-        self.E_base = proiezioni.stima(S=self.S, listone=self.listone, titolari=None,
-                                       R=self.R, prossima=False)
+        if self.tabella:
+            gg = int(self.R.get('giornate_giocate') or max(self.g - 1, 1))
+            self.E_ora = proiezioni.stima_app([dict(r) for r in self.tabella], gg, self.R, self.titolari)
+            self.E_base = proiezioni.stima_app([dict(r) for r in self.tabella], gg, self.R, None)
+            if not self.R.get('giornate_giocate'):
+                self.avvisi.append(f'"giornate_giocate" non e in lega.json: assumo {gg}')
+            if not any(r.get('pv') is not None for r in self.tabella):
+                self.avvisi.append('la tabella non ha la colonna Pv: presenze STIMATE dai decimali '
+                                   'di MV e FM (aggiungi Pv per toglierle)')
+        else:
+            self.E_ora = proiezioni.stima(S=self.S, listone=self.listone, titolari=self.titolari,
+                                          R=self.R, prossima=True)
+            self.E_base = proiezioni.stima(S=self.S, listone=self.listone, titolari=None,
+                                           R=self.R, prossima=False)
 
         # rose della lega
         self.rose = mercato.carica_rose(self.file['rose'])
@@ -129,6 +150,9 @@ class Contesto:
             if ignoti:
                 self.avvisi.append(f'{len(ignoti)} giocatori della tua rosa non sono in nessun file: '
                                    + ', '.join(ignoti[:5]))
+
+    def _nome_rosa(self):
+        return next((k for k in self.rose if k.strip().lower() == str(self.mia_nome).strip().lower()), None)
 
     def _rosa_di(self, nome):
         for k, v in self.rose.items():
@@ -172,6 +196,8 @@ def intestazione(C, titolo):
     fonti = []
     if C.S:
         fonti.append(f'voti giornate {C.S["giornate"][0]}-{C.S["giornate"][-1]}')
+    if C.tabella:
+        fonti.append(f'tabella rose dell app ({len(C.tabella)} giocatori)')
     if C.listone:
         fonti.append(f'listone ({len(C.listone)})')
     if C.F:
@@ -375,6 +401,66 @@ def cmd_portieri(C, A):
     print()
 
 
+def cmd_proposte(C, A):
+    _serve_rosa(C)
+    intestazione(C, 'SCAMBI CHE CONVENGONO A ENTRAMBI')
+    Es = [C.stime_giornata(g) for g in range(C.g, C.g + A.giornate)]
+    cap = C.R.get('capitano') or {}
+    intocc = {cap.get('k'), cap.get('kv')} - {None} if cap.get('attivo') else set()
+    L = mercato.proposte(C._nome_rosa(), C.rose, Es, C.R, top=A.top, intoccabili=intocc)
+    if intocc:
+        print('\n  capitano e vice esclusi dalle offerte (designati per tutta la stagione)')
+    if not L:
+        print('\n  nessuno scambio migliora la tua formazione E quella dell altro.\n')
+        return
+    print(f'\n  fantapunti in piu nelle prossime {A.giornate} giornate, per te e per lui '
+          '(scambi solo a pari ruolo complessivo)')
+    nome = lambda k: C.E_base[k]['nome'] if k in C.E_base else k
+    for x in L:
+        print(f'  {x["avversario"][:18]:<19} dai {" + ".join(nome(k) for k in x["dai"]):<30} '
+              f'ricevi {" + ".join(nome(k) for k in x["ricevi"]):<30} '
+              f'te {x["per_me"]:+.1f} | lui {x["per_lui"]:+.1f}')
+    print('\n  Il "lui" e la stima del socio, non la sua: proponilo partendo da quello che ci guadagna.\n')
+
+
+def cmd_lega(C, A):
+    _serve_rosa(C)
+    intestazione(C, 'LA LEGA: forza delle squadre e prossimi scontri')
+    E = C.stime_giornata(C.g)
+    forze = []
+    for nome, chiavi in C.rose.items():
+        rosa = C.rosa(chiavi, E)
+        f = schiera.migliore_semplice(rosa, C.R)
+        if f is None:
+            continue
+        tot = schiera.punteggi(f, schiera.estrazioni(rosa, A.sim, 11), C.R)
+        m = sum(tot) / len(tot)
+        forze.append((m, nome, sum(regole.gol(x, C.R) for x in tot) / len(tot)))
+    print(f'\n  {"":<3}{"squadra":<22}{"fantapunti attesi":>18}{"gol attesi":>11}')
+    for i, (m, nome, gm) in enumerate(sorted(forze, reverse=True), 1):
+        io = '  <- tu' if nome == C._nome_rosa() else ''
+        print(f'  {i:<3}{nome[:21]:<22}{m:>18.1f}{gm:>11.2f}{io}')
+    cal = C.R.get('calendario_lega') or {}
+    prossime = [(g, cal[str(g)]) for g in range(C.g, C.g + A.giornate) if str(g) in cal]
+    if prossime:
+        print('\n  prossimi scontri (stessa forza per tutte le giornate: senza calendario di Serie A')
+        print('  non si corregge per le partite vere)')
+        rosa = C.rosa(C.mia, E)
+        tot_pt = 0.0
+        for g, avv in prossime:
+            chiavi = C._rosa_di(avv)
+            if not chiavi:
+                print(f'    G{g:<3}{avv:<22} rosa non trovata')
+                continue
+            r = schiera.consiglia(rosa, C.R, avversario=C.rosa(chiavi, E), n=A.sim, moduli_top=2)
+            b = r['migliore']
+            tot_pt += b['punti']
+            print(f'    G{g:<3}{avv[:21]:<22} V {b["p_v"] * 100:>3.0f}%  N {b["p_n"] * 100:>3.0f}%  '
+                  f'S {b["p_s"] * 100:>3.0f}%   {b["punti"]:.2f} punti attesi')
+        print(f'    totale atteso: {tot_pt:.1f} punti in {len(prossime)} giornate')
+    print()
+
+
 def cmd_verifica(C, A):
     import verifica
     intestazione(C, 'VERIFICA')
@@ -388,7 +474,8 @@ def main(argv=None):
     ap.add_argument('--lega', default='lega.json')
     ap.add_argument('--giornata', type=int, default=None)
     sub = ap.add_subparsers(dest='cmd')
-    for nome in ('settimana', 'formazione', 'rosa', 'scambio', 'svincolati', 'portieri', 'verifica'):
+    for nome in ('settimana', 'formazione', 'rosa', 'scambio', 'svincolati', 'portieri', 'verifica',
+                 'proposte', 'lega'):
         p = sub.add_parser(nome)
         p.add_argument('--avversario', default=None)
         p.add_argument('--sim', type=int, default=3000, help='simulazioni Monte Carlo')
@@ -398,7 +485,8 @@ def main(argv=None):
             p.add_argument('--ricevi', required=True)
         if nome == 'svincolati':
             p.add_argument('--ruolo', choices=list(regole.RUOLI), default=None)
-            p.add_argument('--top', type=int, default=15)
+        if nome in ('svincolati', 'proposte'):
+            p.add_argument('--top', type=int, default=15 if nome == 'svincolati' else 10)
     A = ap.parse_args(argv)
     if not A.cmd:
         ap.print_help()
@@ -411,7 +499,7 @@ def main(argv=None):
      'formazione': lambda C, A: (intestazione(C, 'FORMAZIONE'), cmd_formazione(C, A), print()),
      'rosa': cmd_rosa, 'scambio': cmd_scambio,
      'svincolati': cmd_svincolati, 'portieri': cmd_portieri,
-     'verifica': cmd_verifica}[A.cmd](C, A)
+     'verifica': cmd_verifica, 'proposte': cmd_proposte, 'lega': cmd_lega}[A.cmd](C, A)
     return 0
 
 
