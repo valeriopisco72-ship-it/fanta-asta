@@ -210,3 +210,38 @@ def previsto_loo(acquisti, k):
     """Prezzo mediano previsto per `k` con un modello stimato SENZA di lui."""
     a = next(x for x in acquisti if x['k'] == k)
     return prevedi(stima([x for x in acquisti if x['k'] != k]), a['ruolo'], a['fvm'])[1]
+
+
+# ------------------------------------------------------------------ ACQUISTO E MANIE
+
+MIN_SQUADRA = 5
+
+
+def p_acquisto(acquisti, ruolo, fvm):
+    """Frequenza dei comprati nella cella (ruolo, fascia), con Laplace (c+1)/(n+2).
+    Serve il listone: sui soli comprati varrebbe sempre ~1."""
+    f = fascia(fvm)
+    cella = [a for a in acquisti if a['ruolo'] == ruolo and fascia(a['fvm']) == f]
+    c = sum(1 for a in cella if a['pagato'] is not None)
+    return (c + 1.0) / (len(cella) + 2.0)
+
+
+def manie(acquisti, M):
+    """Dove la lega strapaga e dove regala, rispetto alla baseline k*FVM.
+    scarto = mediana di pagato/(k*FVM) - 1 per ruolo, squadra (>= 5 acquisti) e fascia."""
+    k = M['_base']
+    gruppi = {}
+    for a in acquisti:
+        if a['pagato'] is None:
+            continue
+        r = a['pagato'] / (k * a['fvm']) - 1.0
+        gruppi.setdefault(('ruolo', a['ruolo']), []).append(r)
+        if a['squadra']:
+            gruppi.setdefault(('squadra', a['squadra']), []).append(r)
+        gruppi.setdefault(('fascia', f'{FASCE[fascia(a["fvm"])]}+'), []).append(r)
+    out = []
+    for (dim, val), v in gruppi.items():
+        if dim == 'squadra' and len(v) < MIN_SQUADRA:
+            continue
+        out.append({'dimensione': dim, 'valore': val, 'n': len(v), 'scarto': statistics.median(v)})
+    return sorted(out, key=lambda m: (m['dimensione'], -m['scarto']))

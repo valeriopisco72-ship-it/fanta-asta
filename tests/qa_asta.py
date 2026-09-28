@@ -76,6 +76,24 @@ t('CONTROPROVA: il previsto leave-one-out di un giocatore ignora il suo stesso p
 t('fasce: 19 -> 0, 20 -> 1, 99 -> 2, 100 -> 3',
   [mercato_asta.fascia(f) for f in (19, 20, 99, 100)] == [0, 1, 2, 3])
 
+# ================================================== A3. probabilita di acquisto e manie
+print('\n[A3] probabilita di acquisto e manie della lega')
+
+pool = [dict(lin[0], k=f'n{i}', fvm=8.0, pagato=None) for i in range(8)] + \
+       [dict(lin[0], k=f'c{i}', fvm=8.0, pagato=1.0) for i in range(2)]
+t('probabilita di acquisto con Laplace: 2 comprati su 10 -> 0.25',
+  abs(mercato_asta.p_acquisto(pool, 'A', 8.0) - 3 / 12) < 1e-9)
+porta = [dict(lin[0], k=f'p{i}', ruolo='P', fvm=50.0, pagato=40.0, squadra='INT') for i in range(6)]
+milan = [dict(lin[0], k=f'm{i}', fvm=60.0, pagato=30.0, squadra='MIL') for i in range(3)]
+man = {(m['dimensione'], m['valore']): m for m in mercato_asta.manie(lin + porta + milan,
+                                                                        mercato_asta.stima(lin + porta + milan))}
+t('mania per ruolo: i portieri si pagano sopra la baseline', man[('ruolo', 'P')]['scarto'] > 0.2,
+  str(man.get(('ruolo', 'P'))))
+t('squadra con almeno 5 acquisti compare', ('squadra', 'INT') in man)
+t('CONTROPROVA: squadra con meno di 5 acquisti non compare, squadra vuota mai',
+  ('squadra', 'MIL') not in man and ('squadra', '') not in man)
+t('le manie per fascia ci sono', any(d == 'fascia' for d, _ in man))
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)
