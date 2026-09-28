@@ -202,7 +202,9 @@ def prevedi(M, ruolo, fvm):
         previsto, rapporti = M['_base'] * fvm, M['_rapporti_base']
     else:
         previsto = _prev(cella['tipo'], cella['param'], fvm)
-        rapporti = cella['rapporti'] or M['_rapporti_base']
+        # con pochi rapporti la forchetta collasserebbe sul prezzo di quei pochi
+        # (Dimarco, unico D sopra FVM 100: 70/70/70): si usano quelli della lega
+        rapporti = cella['rapporti'] if len(cella['rapporti']) >= MIN_CELLA else M['_rapporti_base']
     return tuple(max(1.0, previsto * r) for r in _quartili(rapporti))
 
 
@@ -245,3 +247,57 @@ def manie(acquisti, M):
             continue
         out.append({'dimensione': dim, 'valore': val, 'n': len(v), 'scarto': statistics.median(v)})
     return sorted(out, key=lambda m: (m['dimensione'], -m['scarto']))
+
+
+# ------------------------------------------------------------------ CLI
+
+NOME_FASCIA = {0: '<20', 1: '20-49', 2: '50-99', 3: '100+'}
+
+
+def stampa(acquisti, M, ruolo=None, top=25, con_listone=True):
+    comprati = [a for a in acquisti if a['pagato'] is not None]
+    print(f'{len(comprati)} comprati, {len(acquisti) - len(comprati)} non comprati'
+          + (f', {len(ESCLUSI)} esclusi (FVM mancante)' if ESCLUSI else '')
+          + f'  |  baseline: 1 punto FVM = {M["_base"]:.3f} crediti')
+    print('\n=== MODELLO PER CELLA (errore medio leave-one-out, in crediti) ===')
+    print(f'  {"ruolo":<6}{"fascia":<8}{"n":>4}  {"modello":<9}{"errore":>8}{"baseline":>10}')
+    for (r, f), c in sorted((k, v) for k, v in M.items() if not str(k).startswith('_')):
+        print(f'  {r:<6}{NOME_FASCIA[f]:<8}{c["n"]:>4}  {c["tipo"]:<9}{c["mae"]:>8.1f}{c["mae_base"]:>10.1f}')
+    print('\n=== MANIE DELLA LEGA (pagato rispetto alla baseline, mediana) ===')
+    for m in manie(acquisti, M):
+        print(f'  {m["dimensione"]:<8}{m["valore"]:<10}{m["scarto"] * 100:>+6.0f}%   su {m["n"]}')
+    L = sorted((a for a in acquisti if not ruolo or a['ruolo'] == ruolo), key=lambda a: -a['fvm'])[:top]
+    print('\n=== PREZZO PREVISTO: forchetta 25% / 50% / 75% ===')
+    print(f'  {"":<3}{"giocatore":<22}{"sq":<5}{"FVM":>5}{"forchetta":>18}{"P(comprato)":>13}{"pagato":>8}')
+    for a in L:
+        q = prevedi(M, a['ruolo'], a['fvm'])
+        pa = f'{p_acquisto(acquisti, a["ruolo"], a["fvm"]) * 100:.0f}%' if con_listone else '-'
+        pg = f'{a["pagato"]:.0f}' if a['pagato'] is not None else '-'
+        print(f'  {a["ruolo"]:<3}{a["nome"][:21]:<22}{a["squadra"][:4]:<5}{a["fvm"]:>5.0f}'
+              f'{q[0]:>6.0f}{q[1]:>6.0f}{q[2]:>6.0f}{pa:>13}{pg:>8}')
+
+
+def main(argv=None):
+    import argparse
+    import os
+    ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    ap.add_argument('--prezzi', required=True)
+    ap.add_argument('--listone', default=None)
+    ap.add_argument('--ruolo', choices=list('PDCA'), default=None)
+    ap.add_argument('--top', type=int, default=25)
+    A = ap.parse_args(argv)
+    for f in (A.prezzi, A.listone):
+        if f and not os.path.exists(f):
+            print(f'[!] file non trovato: {f}')
+            return 1
+    try:
+        acquisti = carica(A.prezzi, A.listone)
+    except fanta.DatoMancante as e:
+        print(f'[!] {e}')
+        return 1
+    stampa(acquisti, stima(acquisti), A.ruolo, A.top, con_listone=bool(A.listone))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

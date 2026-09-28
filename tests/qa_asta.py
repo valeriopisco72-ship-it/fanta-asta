@@ -68,6 +68,11 @@ M2 = mercato_asta.stima(lin + logd)
 t('dati convessi sotto FVM 50: vince il logaritmico', M2[('C', 1)]['tipo'] == 'log', str(M2[('C', 1)]['tipo']))
 t('cella con meno di 5 acquisti: baseline', mercato_asta.stima(lin[:3])[('A', 1)]['tipo'] == 'baseline')  # FVM 20-32
 t('ruolo mai visto: previsione dalla baseline, senza eccezione', mercato_asta.prevedi(M, 'P', 50)[1] >= 1)
+solo = [dict(lin[0], k='unico', ruolo='D', fvm=240.0, pagato=70.0)]
+Ms = mercato_asta.stima(lin + solo)
+q = mercato_asta.prevedi(Ms, 'D', 240.0)
+t('cella con un solo acquisto: la forchetta NON collassa sul suo prezzo (usa i rapporti della lega)',
+  q[0] < q[2], f'{q}')
 # CONTROPROVA leave-one-out: cambiare il prezzo di un giocatore non cambia il SUO previsto loo
 x = lin[5]
 prima = mercato_asta.previsto_loo(lin, x['k'])
@@ -93,6 +98,25 @@ t('squadra con almeno 5 acquisti compare', ('squadra', 'INT') in man)
 t('CONTROPROVA: squadra con meno di 5 acquisti non compare, squadra vuota mai',
   ('squadra', 'MIL') not in man and ('squadra', '') not in man)
 t('le manie per fascia ci sono', any(d == 'fascia' for d, _ in man))
+
+# ================================================== A4. CLI
+print('\n[A4] CLI del prezzo di mercato')
+import subprocess  # noqa: E402
+QUI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def lancia(script, *arg, cwd=None):
+    r = subprocess.run([sys.executable, os.path.join(QUI, script)] + list(arg),
+                       capture_output=True, text=True, cwd=cwd or tmp)
+    return r.returncode, r.stdout + r.stderr
+
+
+rc, out = lancia('mercato_asta.py', '--prezzi', p, '--listone', l)
+t('CLI: gira, mostra i modelli per cella e le forchette', rc == 0 and 'baseline' in out and 'forchetta' in out,
+  out[-300:])
+rc, out = lancia('mercato_asta.py', '--prezzi', os.path.join(tmp, 'non_esiste.csv'), '--listone', l)
+t('CLI: file mancante -> messaggio, codice di errore, niente traceback',
+  rc != 0 and 'Traceback' not in out and 'non_esiste' in out, out[-300:])
 
 # ================================================== esito
 print('\n' + '=' * 74)

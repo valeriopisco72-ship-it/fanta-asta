@@ -58,6 +58,42 @@ Tre cose, in ordine di solidità:
   giocatore da FM ≥ 8,5, e 313 crediti in 7 giocatori della fascia peggiore, di cui due persi
   quasi per intero (Martinez Jo. 51 → 29, Santos A. 45 → 17).
 
+## Prezzo di mercato della lega (`python socio.py asta --mercato`)
+
+Modello per ruolo × fascia di FVM, scelto dall'errore **leave-one-out** (il prezzo di ogni
+giocatore previsto senza usare il suo acquisto), su 250 acquisti e 342 non comprati del listone
+del 04/09. Baseline di lega: 1 punto FVM = 0,433 crediti.
+
+| cella | modello | errore medio | baseline |
+|---|---|---|---|
+| A 20-49 | logaritmico | **4,0** | 8,8 |
+| C 20-49 | logaritmico | **5,2** | 6,8 |
+| D 20-49 | lineare | **5,3** | 7,3 |
+| P 50-99 | lineare | **3,9** | 25,2 |
+| A 100+ | baseline | 20,4 | 20,4 |
+| C 100+ | lineare | 18,7 | 19,2 |
+
+Sotto FVM 50 il modello dimezza l'errore; sui top nessun modello batte la retta semplice, e
+si usa quella: **sui top la tua lega è imprevedibile di ±20 crediti**, ed è lì che il tetto
+(piano d'asta) conta più della previsione.
+
+**Le manie** (pagato rispetto alla baseline, mediana):
+
+| strapaga | | regala | |
+|---|---|---|---|
+| portieri | **+46%** | attaccanti | **−39%** |
+| difensori | +25% | centrocampisti | −34% |
+| Como | **+57%** | Frosinone | **−84%** |
+| Inter | +38% | Monza | **−81%** |
+| Udinese | +31% | Venezia | −68% |
+| Roma | +26% | Parma, Cagliari | −67% |
+| Milan | +18% | Sassuolo | −63% |
+
+La lega paga il **nome** della squadra, non il giocatore: Como e Inter si pagano quasi il doppio di
+Monza e Frosinone a parità di FVM. È esattamente il posto da cui sono usciti i gioielli di
+quest'anno (Varela, Zeballos, Raimondo, Kvernadze, Adzic): **il mercato li ha svenduti perché
+erano di squadre senza nome**. Per lo scouting (piano C) significa che l'imbuto deve partire da lì.
+
 ## Contraddico una cosa sola
 
 "Prendere i super top" letto come *rilanciare su chiunque sia quotato alto* sarebbe sbagliato:

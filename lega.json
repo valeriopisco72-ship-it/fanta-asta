@@ -114,6 +114,8 @@
  "giornate_giocate": 5,
  "file": {
   "tabella": "statistiche_rose_2026-27.csv",
-  "rose": "rose.csv"
+  "rose": "rose.csv",
+  "prezzi": "prezzi_lega_2026-27.csv",
+  "listone": "listone_completo.csv"
  }
 }

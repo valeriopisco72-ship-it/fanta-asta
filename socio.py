@@ -15,6 +15,7 @@ le mette insieme, con un metro solo: **quanto cambia la TUA formazione**.
     python socio.py verifica                      # le stime ci azzeccano? backtest sui tuoi voti
     python socio.py proposte                      # scambi che convengono a te E all'altro
     python socio.py lega                          # forza di tutte le squadre, P(vittoria) prossime
+    python socio.py asta --mercato                # quanto paga davvero la tua lega, giocatore per giocatore
     python socio.py --lega altra/lega.json settimana
 
 Tutto si configura in `lega.json` (v. regole.py per le regole, e la sezione
@@ -40,7 +41,7 @@ import voti
 
 FILE_DEFAULT = {'listone': 'listone_completo.csv', 'voti': 'voti', 'calendario': 'calendario.csv',
                 'rose': 'rose.csv', 'titolari': 'titolari.csv', 'squadre': 'squadre_2025-26.csv',
-                'tabella': 'statistiche_rose.csv'}
+                'tabella': 'statistiche_rose.csv', 'prezzi': 'prezzi_lega.csv'}
 XI_VECCHIO = 3   # giorni: oltre, le probabili si dichiarano vecchie
 
 
@@ -466,6 +467,24 @@ def cmd_lega(C, A):
     print()
 
 
+def cmd_asta(C, A):
+    import mercato_asta
+    if not os.path.exists(C.file['prezzi']):
+        raise SystemExit(f'\n[!] prezzi d asta non trovati: {C.file["prezzi"]} '
+                         '(FantaSquadra;Nome;Ruolo;Pagato;FVM, in lega.json -> file.prezzi)\n')
+    listone = C.file['listone'] if os.path.exists(C.file['listone']) else None
+    try:
+        acquisti = mercato_asta.carica(C.file['prezzi'], listone)
+    except fanta.DatoMancante as e:
+        raise SystemExit(f'\n[!] {e}\n')
+    intestazione(C, 'ASTA: prezzo di mercato della lega')
+    if not listone:
+        print('  !! senza listone: solo i comprati, niente probabilita di acquisto')
+    print()
+    mercato_asta.stampa(acquisti, mercato_asta.stima(acquisti), A.ruolo, A.top, con_listone=bool(listone))
+    print()
+
+
 def cmd_verifica(C, A):
     import verifica
     intestazione(C, 'VERIFICA')
@@ -480,7 +499,7 @@ def main(argv=None):
     ap.add_argument('--giornata', type=int, default=None)
     sub = ap.add_subparsers(dest='cmd')
     for nome in ('settimana', 'formazione', 'rosa', 'scambio', 'svincolati', 'portieri', 'verifica',
-                 'proposte', 'lega'):
+                 'proposte', 'lega', 'asta'):
         p = sub.add_parser(nome)
         p.add_argument('--avversario', default=None)
         p.add_argument('--sim', type=int, default=3000, help='simulazioni Monte Carlo')
@@ -488,10 +507,12 @@ def main(argv=None):
         if nome == 'scambio':
             p.add_argument('--dai', required=True)
             p.add_argument('--ricevi', required=True)
-        if nome == 'svincolati':
+        if nome in ('svincolati', 'asta'):
             p.add_argument('--ruolo', choices=list(regole.RUOLI), default=None)
-        if nome in ('svincolati', 'proposte'):
-            p.add_argument('--top', type=int, default=15 if nome == 'svincolati' else 10)
+        if nome in ('svincolati', 'proposte', 'asta'):
+            p.add_argument('--top', type=int, default={'svincolati': 15, 'proposte': 10, 'asta': 25}[nome])
+        if nome == 'asta':
+            p.add_argument('--mercato', action='store_true', help='solo il prezzo di mercato della lega')
     A = ap.parse_args(argv)
     if not A.cmd:
         ap.print_help()
@@ -504,7 +525,7 @@ def main(argv=None):
      'formazione': lambda C, A: (intestazione(C, 'FORMAZIONE'), cmd_formazione(C, A), print()),
      'rosa': cmd_rosa, 'scambio': cmd_scambio,
      'svincolati': cmd_svincolati, 'portieri': cmd_portieri,
-     'verifica': cmd_verifica, 'proposte': cmd_proposte, 'lega': cmd_lega}[A.cmd](C, A)
+     'verifica': cmd_verifica, 'proposte': cmd_proposte, 'lega': cmd_lega, 'asta': cmd_asta}[A.cmd](C, A)
     return 0
 
 
