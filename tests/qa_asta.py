@@ -52,9 +52,32 @@ except fanta.DatoMancante as e:
 t('CONTROPROVA: un comprato assente dal listone ferma tutto e lo nomina', ok)
 t('senza listone: solo i comprati', len(mercato_asta.carica(p, None)) == 2)
 
+# ================================================== A2. modello per cella
+print('\n[A2] modello per cella scelto dal leave-one-out')
+
+rng = random.Random(3)
+lin = [{'k': f'a{i}', 'nome': f'a{i}', 'ruolo': 'A', 'squadra': '', 'fvm': f, 'quota': None,
+        'pagato': 0.6 * f * rng.uniform(0.9, 1.1), 'fantasquadra': 'X'} for i, f in enumerate(range(20, 200, 6))]
+M = mercato_asta.stima(lin)
+q25, q50, q75 = mercato_asta.prevedi(M, 'A', 100)
+t('dati proporzionali: previsto vicino a 0.6*FVM', abs(q50 - 60) < 6, f'{q50:.1f}')
+t('forchetta ordinata e mai sotto 1', 1 <= q25 <= q50 <= q75, f'{q25:.1f} {q50:.1f} {q75:.1f}')
+logd = [dict(x, k=f'l{i}', ruolo='C', fvm=f, pagato=max(1.0, 0.02 * f ** 1.8)) for i, (x, f) in
+        enumerate(zip(lin, range(5, 50)))]
+M2 = mercato_asta.stima(lin + logd)
+t('dati convessi sotto FVM 50: vince il logaritmico', M2[('C', 1)]['tipo'] == 'log', str(M2[('C', 1)]['tipo']))
+t('cella con meno di 5 acquisti: baseline', mercato_asta.stima(lin[:3])[('A', 1)]['tipo'] == 'baseline')  # FVM 20-32
+t('ruolo mai visto: previsione dalla baseline, senza eccezione', mercato_asta.prevedi(M, 'P', 50)[1] >= 1)
+# CONTROPROVA leave-one-out: cambiare il prezzo di un giocatore non cambia il SUO previsto loo
+x = lin[5]
+prima = mercato_asta.previsto_loo(lin, x['k'])
+dopo = mercato_asta.previsto_loo([dict(y, pagato=999.0) if y['k'] == x['k'] else y for y in lin], x['k'])
+t('CONTROPROVA: il previsto leave-one-out di un giocatore ignora il suo stesso prezzo', abs(prima - dopo) < 1e-9)
+t('fasce: 19 -> 0, 20 -> 1, 99 -> 2, 100 -> 3',
+  [mercato_asta.fascia(f) for f in (19, 20, 99, 100)] == [0, 1, 2, 3])
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)
 print(f'  RISULTATO: {len(OK)}/{len(OK) + len(KO)} pass   .   {len(KO)} FAIL ({gravi} gravi)')
-print('=' * 74)
 sys.exit(1 if KO else 0)

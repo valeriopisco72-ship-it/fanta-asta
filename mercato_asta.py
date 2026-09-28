@@ -30,6 +30,9 @@ Spec: docs/superpowers/specs/2026-09-28-piano-asta-design.md (par. 3)
 Uso:
     python mercato_asta.py --prezzi prezzi_lega_2026-27.csv --listone listone_completo.csv
 """
+import math
+import statistics
+
 import fanta
 import nomi
 import voti
@@ -102,3 +105,108 @@ def carica(prezzi_path, listone_path=None):
         else:
             validi.append(a)
     return validi
+
+
+# ------------------------------------------------------------------ MODELLO
+
+def fascia(fvm):
+    """Indice della fascia di FVM: 0 (<20), 1 (20-49), 2 (50-99), 3 (>=100)."""
+    return max(i for i, soglia in enumerate(FASCE) if fvm >= soglia)
+
+
+def _fit(tipo, punti):
+    """Parametri del modello sui punti [(fvm, pagato)], o None se non stimabile."""
+    if not punti:
+        return None
+    if tipo in ('lineare', 'baseline'):
+        s = sum(f for f, _ in punti)
+        return (sum(p for _, p in punti) / s,) if s else None
+    xs = [math.log(f) for f, _ in punti]
+    ys = [math.log(max(p, 1.0)) for _, p in punti]
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    den = sum((x - mx) ** 2 for x in xs)
+    if den == 0:
+        return None
+    b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den
+    return (my - b * mx, b)
+
+
+def _prev(tipo, param, fvm):
+    if tipo == 'log':
+        a, b = param
+        return math.exp(a + b * math.log(fvm))
+    return param[0] * fvm
+
+
+def _loo(tipo, punti, tutti=None):
+    """Previsioni leave-one-out: per ogni punto, il modello stimato SENZA di lui.
+    Per la baseline il modello si stima su `tutti` (la lega intera) meno lui."""
+    out = []
+    for i, (f, _) in enumerate(punti):
+        if tipo == 'baseline':
+            altri = [q for q in tutti if q is not punti[i]]
+        else:
+            altri = punti[:i] + punti[i + 1:]
+        param = _fit(tipo, altri)
+        out.append(_prev(tipo, param, f) if param else None)
+    return out
+
+
+def _mae(punti, prev):
+    err = [abs(p - q) for (_, p), q in zip(punti, prev) if q is not None]
+    return sum(err) / len(err) if err else float('inf')
+
+
+def stima(acquisti):
+    """Modello per cella (ruolo, fascia) scelto dall'errore leave-one-out."""
+    comprati = [a for a in acquisti if a['pagato'] is not None]
+    tutti = [(a['fvm'], a['pagato']) for a in comprati]
+    base = _fit('baseline', tutti)
+    base_k = base[0] if base else 1.0
+    prev_base_tutti = _loo('baseline', tutti, tutti)
+    M = {'_base': base_k,
+         '_rapporti_base': [p / q for (_, p), q in zip(tutti, prev_base_tutti) if q]}
+    celle = {}
+    for a, pt in zip(comprati, tutti):
+        celle.setdefault((a['ruolo'], fascia(a['fvm'])), []).append(pt)
+    for cella, punti in celle.items():
+        prev_b = _loo('baseline', punti, tutti)
+        scelta = {'tipo': 'baseline', 'param': (base_k,), 'prev': prev_b,
+                  'mae': _mae(punti, prev_b), 'mae_base': _mae(punti, prev_b), 'n': len(punti)}
+        if len(punti) >= MIN_CELLA:
+            for tipo in ('lineare', 'log'):
+                prev = _loo(tipo, punti)
+                mae = _mae(punti, prev)
+                if mae < scelta['mae']:
+                    scelta.update(tipo=tipo, param=_fit(tipo, punti), prev=prev, mae=mae)
+        scelta['rapporti'] = [p / q for (_, p), q in zip(punti, scelta.pop('prev')) if q]
+        M[cella] = scelta
+    return M
+
+
+def _quartili(v):
+    v = sorted(v)
+    if not v:
+        return 1.0, 1.0, 1.0
+    if len(v) < 4:
+        m = statistics.median(v)
+        return min(v), m, max(v)
+    q = statistics.quantiles(v, n=4)
+    return q[0], q[1], q[2]
+
+
+def prevedi(M, ruolo, fvm):
+    """(q25, q50, q75) del prezzo che la lega paghera', mai sotto 1 credito."""
+    cella = M.get((ruolo, fascia(fvm)))
+    if cella is None:
+        previsto, rapporti = M['_base'] * fvm, M['_rapporti_base']
+    else:
+        previsto = _prev(cella['tipo'], cella['param'], fvm)
+        rapporti = cella['rapporti'] or M['_rapporti_base']
+    return tuple(max(1.0, previsto * r) for r in _quartili(rapporti))
+
+
+def previsto_loo(acquisti, k):
+    """Prezzo mediano previsto per `k` con un modello stimato SENZA di lui."""
+    a = next(x for x in acquisti if x['k'] == k)
+    return prevedi(stima([x for x in acquisti if x['k'] != k]), a['ruolo'], a['fvm'])[1]
