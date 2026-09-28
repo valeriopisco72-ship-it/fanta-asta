@@ -130,3 +130,56 @@ dati è più stretta:
 
 Da rifare a fine girone d'andata con i Pv veri di tutte le rose: se la fascia 25-49 resta sotto
 le altre anche a 19 giornate, diventa una regola del tool d'asta (`fanta.py`), non un consiglio.
+
+## Rigioco
+
+`python socio.py asta --rigioca` (28/09/2026) rigioca l'asta del 05/09 reparto per reparto:
+il piano, costruito **solo con dati di agosto** (listone, prezzi previsti dal modello della
+lega), va sul suo bersaglio più caro. Se nessuno lo aveva comprato lo prende a 1; se il suo
+tetto arriva a pagato + 1 lo prende a pagato + 1; altrimenti lo perde e rifà il piano.
+**È ottimista per costruzione**: quando rilanci, gli altri non reagiscono.
+
+La rosa del rigioco: Di Gregorio, Milinkovic-Savic V., Provedel · Dimarco (71), Ostigard,
+Pavlovic, Kabasele, Gallo, Terracciano F., Drobnic, Puczka · Paz N. (94), McTominay (51),
+Modric, Mandragora, Thuram K., Konè I., Keita M., Mkhitaryan · Thuram (107), Davis K. (63),
+Yildiz, Esposito Se., Vitinha O., Buksa. 500 crediti, 5 giocatori sopra i 50, 11 presi a 1
+credito fra quelli che nessuno ha comprato.
+
+| rosa | valore col modello di agosto | forza oggi (socio) | FM di chi gioca | FVMp oggi (crediti) |
+|---|---|---|---|---|
+| **piano (rigioco)** | **72,1** (1ª) | n.d. (14 noti su 25) | 6,46 sui 14 noti | **579 sui 14 noti** |
+| Sbirrodemerda FC | 63,6 (9ª) | **74,2** | 6,56 | 595 |
+| AQ Alessia quondam | 65,3 (7ª) | 73,4 | **6,80** | 552 |
+| **AL DOMORO (vera)** | 62,4 (**10ª**) | 69,6 (3ª) | 6,08 | 459 |
+| ziopera | 68,5 (2ª) | 65,7 (9ª) | 6,30 | 558 |
+| Scasserra FC | 67,3 (3ª) | 64,2 (10ª) | 6,09 | 453 |
+
+(le altre 5 rose fra 66,6 e 69,4 di forza oggi.)
+
+### Il verdetto, in tre righe
+
+1. **Il piano spende meglio.** A prezzi veri (anzi pagato + 1), i 14 giocatori del piano che
+   qualcuno aveva davvero comprato valgono oggi **579 crediti**: più di 9 rose intere su 10, e
+   120 più di tutta AL DOMORO (459) con 11 slot ancora da contare. La loro FM (6,46) è sopra
+   quella di AL DOMORO (6,08). I top che prende sono quelli giusti (Thuram, Paz, Dimarco).
+2. **Ma il valore che ottimizza è sbagliato, e questo è il punto.** Il modello di agosto mette
+   le 10 rose vere in un ordine **opposto** a quello di oggi: correlazione di rango **−0,53**.
+   Sbirrodemerda e AQ, prime oggi, erano 9ª e 7ª per il modello; ziopera e Scasserra, prime per
+   il modello, sono 9ª e 10ª. Il piano "vince" sul modello per costruzione: il test vero è la
+   classifica, e lì il modello di agosto non ha predetto niente.
+3. **Gli 11 giocatori da 1 credito sono la scommessa non verificabile.** Nessuno li ha comprati
+   e la tabella dell'app di oggi ha solo i giocatori in rosa: la loro stagione non si conosce
+   da qui. La forza di oggi della rosa del piano quindi **non si può calcolare**, e non la
+   stimo.
+
+**Cosa ne segue.** Il motore dei prezzi (forchetta, tetto, somma zero) fa quello che deve: dato
+un valore, spende bene. Il limite è il **valore dei giocatori ad agosto**, che è fatto di
+stagione scorsa e quotazioni: le rose migliori di oggi le hanno fatte i biglietti da 1-3
+crediti che sono usciti (§ Come hanno speso), cioè esattamente quello che il modello non vede.
+È il motivo per cui il piano C (scouting con fonti) viene dopo questo: i tetti diventano utili
+solo quando il valore di chi costa poco è stimato meglio. Fino ad allora usa il piano per la
+**struttura** (dove non spendere, i portieri a 1-2 crediti, 1-2 top veri) e per i **tetti dei
+top**, e non fidarti del suo giudizio sui giocatori da 1 credito.
+
+Limiti: 5 giornate, 10 rose (la correlazione ha un intervallo largo); rigioco ottimista; FVMp
+è consenso di mercato. Da rifare a giornata 19 con le schede di scouting in `scouting/`.

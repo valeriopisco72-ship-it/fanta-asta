@@ -120,7 +120,9 @@ def _costruisci(ordine, E, prezzi, slot, vincoli, fissati, budget):
             rosa = prova
         else:
             manca[r] += 1
-    return rosa if all(v == 0 for v in manca.values()) else None
+    if any(v != 0 for v in manca.values()) or sum(prezzi[k] for k in rosa) > budget:
+        return None             # anche i fissati da soli possono sforare il budget
+    return rosa
 
 
 def ottimizza(E, prezzi, R, budget, slot, vincoli, fissati=(), esclusi=(), seme=1, partenze=5,
@@ -317,15 +319,17 @@ def piano(E, forchette, R, budget, slot, vincoli, ordine=('P', 'D', 'C', 'A'), c
     rosa = best['rosa']
 
     def alternative(k):
-        r = E[k]['ruolo']
+        """Se lo perdi, vai su di loro: i 2 fuori rosa del suo ruolo piu' vicini a lui per valore."""
+        r, v = E[k]['ruolo'], E[k]['mu'] * E[k]['p']
         liberi = [x for x in prezzi if E[x]['ruolo'] == r and x not in rosa and x not in esclusi and x != k]
-        return sorted(liberi, key=lambda x: (-E[x]['mu'] * E[x]['p'] / max(prezzi[x], 1.0), x))[:2]
+        return sorted(liberi, key=lambda x: (abs(E[x]['mu'] * E[x]['p'] - v), prezzi[x], x))[:2]
 
     def riga(k, con_tetto):
+        tuo = k in fissati
         tt = tetto(k, E, prezzi, R, budget, slot, vincoli, fissati, esclusi, base=rosa, partenze=1) \
-            if con_tetto else None
+            if con_tetto and not tuo else None
         return {'k': k, 'nome': E[k]['nome'], 'forchetta': forchette[k], 'tetto': tt,
-                'etichetta': _etichetta(tt, forchette[k]), 'alternative': alternative(k),
+                'etichetta': 'tuo' if tuo else _etichetta(tt, forchette[k]), 'alternative': alternative(k),
                 'fonte': E[k].get('fonte', '')}
 
     reparti = {}
@@ -458,3 +462,131 @@ def rigioca(acquisti, E_agosto, forchette, R, vincoli, ordine=('P', 'D', 'C', 'A
                 persi.add(k)
                 log.append(f'perso {E[k]["nome"]} (pagato {pg:.0f}, tetto {tt:.0f})')
     return {'rosa': sorted(miei), 'speso': sum(miei.values()), 'prezzi': miei, 'log': log}
+
+
+# ------------------------------------------------------------------ CLI
+
+def prepara(listone_path, prezzi_path, R):
+    """Dai file alle stime: (E, forchette, acquisti). Solleva fanta.DatoMancante."""
+    import fanta
+    import mercato_asta
+    acquisti = mercato_asta.carica(prezzi_path, listone_path)
+    M = mercato_asta.stima(acquisti)
+    E = valori(fanta.carica(listone_path)['giocatori'], R)
+    forchette = {a['k']: mercato_asta.prevedi(M, a['ruolo'], a['fvm']) for a in acquisti if a['k'] in E}
+    return E, forchette, acquisti
+
+
+def vincoli_da(R):
+    """La sezione 'asta' di lega.json -> vincoli dell'ottimizzatore."""
+    a = R.get('asta') or {}
+    v = {k: a[k] for k in ('portieri_max', 'fascia_media_max') if k in a}
+    if 'fascia_media' in a:
+        v['fascia_media'] = tuple(a['fascia_media'])
+    return v
+
+
+def _f(x):
+    return f'{x:.0f}'
+
+
+def stampa_piano(P, E, R):
+    slot = R['slot']
+    print(f'  rosa del piano: {len(P["rosa"])} giocatori, {P["costo"]:.0f} crediti ai prezzi previsti, '
+          f'{P["valore_esatto"]:.1f} fantapunti attesi a giornata')
+    print('  struttura: ' + ', '.join(f'{n} {k}' for k, n in P['struttura'].items()))
+    print('  etichette: affare = tetto sopra la forchetta; da giocare = tetto dentro;\n'
+          '             lascia = tetto sotto (la lega lo paghera\' piu\' di quanto ti serve)')
+    for r, rep in P['reparti'].items():
+        print(f'\n  === REPARTO {r} ({slot[r]} slot) - budget del reparto: {rep["budget"]:.0f} crediti ===')
+        print(f'    {"":<2}{"giocatore":<22}{"sq":<5}{"forchetta":>13}{"tetto":>7}  {"":<12}alternative')
+        for tipo, righe in (('>>', rep['bersagli']), ('  ', rep['altri'])):
+            for g in righe:
+                q = g['forchetta']
+                tt = _f(g['tetto']) if g['tetto'] is not None else '-'
+                alt = ', '.join(E[a]['nome'] for a in g['alternative'])
+                print(f'    {tipo}{g["nome"][:21]:<22}{E[g["k"]]["squadra"][:4]:<5}'
+                      f'{_f(q[0]):>5}-{_f(q[1]):>3}-{_f(q[2]):>3}{tt:>7}  {g["etichetta"]:<12}{alt}')
+    print('\n  >> = nel piano. Il tetto e\' il prezzo oltre il quale la rosa migliore la fai senza di lui.')
+
+
+def stampa_rigioco(res, acquisti, E, R):
+    print('  L\'asta del 05/09 rigiocata col piano, solo con dati di agosto. OTTIMISTA per costruzione:')
+    print('  quando rilanci a pagato+1 gli altri non reagiscono.\n')
+    for riga in res['log']:
+        print('    ' + riga)
+    rose = {}
+    for a in acquisti:
+        if a['pagato'] is not None:
+            fs = a['fantasquadra'] or '?'
+            rose.setdefault(fs, []).append(a)
+    mia = str(R.get('mia', '')).lower()
+    print('\n  === CONFRONTO (fantapunti attesi a giornata col modello di agosto) ===')
+    righe = [('PIANO (rigioco)', valore_rosa(res['rosa'], E, R), res['speso'], len(res['rosa']))]
+    for fs, lista in rose.items():
+        chiavi = [a['k'] for a in lista]
+        nome = fs + ('  <- tu, vera' if fs.lower() == mia else '')
+        righe.append((nome, valore_rosa(chiavi, E, R), sum(a['pagato'] for a in lista), len(lista)))
+    print(f'    {"":<3}{"rosa":<30}{"valore":>8}{"speso":>8}{"gioc.":>7}')
+    for i, (nome, v, s, n) in enumerate(sorted(righe, key=lambda x: -x[1]), 1):
+        print(f'    {i:<3}{nome[:29]:<30}{v:>8.1f}{s:>8.0f}{n:>7}')
+
+
+def esegui(R, listone_path, prezzi_path, modo='piano', candidati=12, live=None, partenze=3):
+    """Il comando: stampa piano, piano live o rigioco. Ritorna il codice di uscita."""
+    import json
+    import os
+
+    import fanta
+    for nome, f in (('listone', listone_path), ('prezzi d asta', prezzi_path)):
+        if not f or not os.path.exists(f):
+            print(f'[!] {nome} non trovato: {f} (in lega.json -> file.listone / file.prezzi)')
+            return 1
+    try:
+        E, forchette, acquisti = prepara(listone_path, prezzi_path, R)
+    except fanta.DatoMancante as e:
+        print(f'[!] {e}')
+        return 1
+    vincoli = vincoli_da(R)
+    ordine = tuple((R.get('asta') or {}).get('ordine', 'PDCA'))
+    try:
+        if modo == 'rigioca':
+            stampa_rigioco(rigioca(acquisti, E, forchette, R, vincoli, ordine), acquisti, E, R)
+        elif live:
+            if not os.path.exists(live):
+                print(f'[!] stato dell asta non trovato: {live}')
+                return 1
+            with open(live, encoding='utf-8') as fh:
+                stato = json.load(fh)
+            P = ricalcola(stato, E, forchette, R, vincoli, ordine=ordine, candidati=candidati,
+                          partenze=partenze)
+            print(f'  termometro: la lega paga {P["termometro"]:.2f}x il previsto; '
+                  f'prezzi dei rimasti x{P["fattore"]:.2f} (somma zero)\n')
+            stampa_piano(P, E, R)
+        else:
+            stampa_piano(piano(E, forchette, R, R['budget'], R['slot'], vincoli, ordine,
+                               candidati=candidati, partenze=partenze), E, R)
+    except ValueError as e:
+        print(f'[!] piano impossibile: {e}')
+        return 1
+    return 0
+
+
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    ap.add_argument('--lega', default='lega.json')
+    ap.add_argument('--listone', default=None)
+    ap.add_argument('--prezzi', default=None)
+    ap.add_argument('--candidati', type=int, default=12, help='giocatori con tetto per reparto')
+    ap.add_argument('--live', default=None, help='stato dell asta in corso (json)')
+    ap.add_argument('--rigioca', action='store_true', help='rigioca l asta coi prezzi veri')
+    A = ap.parse_args(argv)
+    R = regole.carica_lega(A.lega)
+    fl = R.get('file', {})
+    return esegui(R, A.listone or fl.get('listone'), A.prezzi or fl.get('prezzi'),
+                  'rigioca' if A.rigioca else 'piano', A.candidati, A.live)
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

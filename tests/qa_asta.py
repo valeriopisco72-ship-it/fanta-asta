@@ -205,6 +205,22 @@ except ValueError as e:
     ok = 'budget' in str(e) or 'reparto' in str(e)
 t('budget impossibile: errore che dice perche, non una rosa incompleta', ok)
 
+# i fissati da soli sforano il budget: nessuna rosa valida (bug trovato rigiocando l'asta vera: speso 501 su 500)
+tutti_fissi = [k for r in 'PDCA' for k in sorted(k for k in E4 if E4[k]['ruolo'] == r)[:slot[r]]]
+costo_fissi = sum(prezzi[k] for k in tutti_fissi)
+try:
+    piano_asta.ottimizza(E4, prezzi, Rm, costo_fissi - 1, slot, vinc, fissati=tutti_fissi)
+    ok = False
+except ValueError:
+    ok = True
+t('fissati che da soli sforano il budget: errore, non una rosa fuori budget', ok)
+t('CONTROPROVA: con budget giusto i fissati bastano',
+  piano_asta.ottimizza(E4, prezzi, Rm, costo_fissi, slot, vinc, fissati=tutti_fissi)['costo'] == costo_fissi)
+ultimo = tutti_fissi[-1]
+t('tetto dell ultimo slot = i crediti che restano',
+  piano_asta.tetto(ultimo, E4, dict(prezzi, **{ultimo: 1.0}), Rm, costo_fissi - prezzi[ultimo] + 1, slot, vinc,
+                   fissati=tutti_fissi[:-1]) == 1.0)
+
 print('\n[B3] tetto come prezzo di indifferenza')
 B = 40                                    # budget che morde (la rosa migliore ne costa 73) ma basta per la stella
 stella = max((k for k in E4 if E4[k]['ruolo'] == 'A'), key=lambda k: E4[k]['mu'])
@@ -242,10 +258,32 @@ t('budget di reparto = somma mediane dei bersagli x 1.10',
   all(abs(rep['budget'] - 1.10 * sum(r['forchetta'][1] for r in rep['bersagli'])) < 1e-6 for rep in P_['reparti'].values()))
 t('etichette secondo il tetto e la forchetta', all(
   (r['etichetta'] == 'affare') == (r['tetto'] is not None and r['tetto'] > r['forchetta'][2]) for r in righe))
-t('fuori piano = senza tetto', all((r['tetto'] is None) == (r['etichetta'] == 'fuori piano') for r in righe))
+t('senza tetto = fuori piano o gia tuo', all((r['tetto'] is None) == (r['etichetta'] in ('fuori piano', 'tuo')) for r in righe))
 t('alternative dello stesso ruolo e fuori dalla rosa del piano',
   all(E4[a]['ruolo'] == E4[r['k']]['ruolo'] and a not in P_['rosa'] for r in righe for a in r['alternative']))
 t('i reparti seguono l ordine di chiamata', list(P_['reparti']) == ['P', 'D', 'C', 'A'])
+# piu' attaccanti fuori rosa: uno quasi come A0 ma carissimo, due scarsi da 1 credito (i migliori per credito)
+E7 = dict(E4, A3=G('A3', 'A', 8.2, prezzo=45), A4=G('A4', 'A', 5.0, prezzo=1), A5=G('A5', 'A', 4.9, prezzo=1))
+P7 = piano_asta.piano(E7, forchette_finte(E7), Rm, 60, slot, vinc, candidati=4)
+righe7 = [r for rep in P7['reparti'].values() for r in rep['bersagli'] + rep['altri']]
+
+
+def _vic(k, a):
+    return abs(E7[a]['mu'] * E7[a]['p'] - E7[k]['mu'] * E7[k]['p'])
+
+
+def _alt_ok(r):
+    fuori = [x for x in E7 if E7[x]['ruolo'] == E7[r['k']]['ruolo'] and x not in P7['rosa'] and x != r['k']]
+    lim = max((_vic(r['k'], a) for a in r['alternative']), default=-1)
+    return len(r['alternative']) == min(2, len(fuori)) and \
+        all(_vic(r['k'], x) >= lim - 1e-12 for x in fuori if x not in r['alternative'])
+
+
+t('alternative: i 2 fuori rosa piu vicini per valore (se lo perdi, vai su di loro)',
+  all(_alt_ok(r) for r in righe7), [(r['k'], r['alternative']) for r in righe7 if not _alt_ok(r)])
+coppie_A = {tuple(r['alternative']) for r in P7['reparti']['A']['bersagli'] + P7['reparti']['A']['altri']}
+t('CONTROPROVA: non la stessa coppia per tutto il reparto', len(coppie_A) > 1, coppie_A)
+
 t('i bersagli sono esattamente la rosa del piano',
   sorted(r['k'] for rep in P_['reparti'].values() for r in rep['bersagli']) == sorted(P_['rosa']))
 
@@ -264,6 +302,10 @@ Pm = piano_asta.ricalcola(mio, E4, forchette_finte(E4), Rm, vinc, slot=slot, can
 t('comprato da me: sempre nel piano, al prezzo pagato', stella in Pm['rosa'] and
   next(r for r in Pm['reparti']['A']['bersagli'] if r['k'] == stella)['forchetta'] == (10, 10, 10))
 t('il budget del piano e il mio residuo + quanto ho gia speso', Pm['costo'] <= 60)
+r_mio = next(r for r in Pm['reparti']['A']['bersagli'] if r['k'] == stella)
+t('comprato da me: etichetta tuo, nessun tetto', r_mio['etichetta'] == 'tuo' and r_mio['tetto'] is None, r_mio)
+t('CONTROPROVA: nel piano senza acquisti nessuno e tuo',
+  all(r['etichetta'] != 'tuo' for rep in P_['reparti'].values() for r in rep['bersagli'] + rep['altri']))
 # somma zero: chi strapaga brucia crediti -> il resto costa MENO (fanta.mercato, e i dati della lega)
 Rl = regole.carica_lega(None, {'squadre': 2, 'budget': 60})
 caro = {'venduti': [{'nome': E4[stella]['nome'], 'prezzo': 50, 'mio': False}], 'mio_budget': 60, 'miei': []}
@@ -288,6 +330,38 @@ t('CONTROPROVA: chi e stato pagato piu del tetto si perde, e si passa oltre',
 import inspect  # noqa: E402
 t('il rigioco non puo leggere dati 2026/27: la firma non li prende',
   not {'S', 'voti', 'tabella', 'records'} & set(inspect.signature(piano_asta.rigioca).parameters))
+
+print('\n[B7] socio.py asta: piano, rigioco, file mancanti')
+import json  # noqa: E402
+lega_b7 = os.path.join(tmp, 'lega_b7')
+os.makedirs(lega_b7)
+rng7 = random.Random(7)
+righe_l = [['Nome', 'Ruolo', 'Squadra', 'Quotazione', 'FVM', 'Fantamedia', 'Presenze']]
+righe_p = [['FantaSquadra', 'Nome', 'Ruolo', 'Pagato', 'FVM']]
+for r, n in (('P', 7), ('D', 18), ('C', 18), ('A', 14)):
+    for i in range(n):
+        fvm = max(1, int(120 * (1 - i / n) ** 2))
+        nome = f'{r}Gioc{i:02d}'
+        righe_l.append([nome, r, f'T{i % 10:02d}', max(1, fvm // 5), fvm, f'{5.5 + 2 * (1 - i / n):.2f}', 20 + i % 15])
+        if i % 2 == 0:
+            righe_p.append(['Altri' if i % 4 else 'Mia', nome, r, max(1, int(fvm * 0.4 * rng7.uniform(0.7, 1.3))), fvm])
+scrivi_csv(os.path.join(lega_b7, 'listone.csv'), righe_l)
+scrivi_csv(os.path.join(lega_b7, 'prezzi.csv'), righe_p)
+json.dump({'mia': 'Mia', 'squadre': 2, 'file': {'listone': 'listone.csv', 'prezzi': 'prezzi.csv'},
+           'asta': {'portieri_max': 40}}, open(os.path.join(lega_b7, 'lega.json'), 'w'))
+rc, out = lancia('socio.py', '--lega', os.path.join(lega_b7, 'lega.json'), 'asta', '--candidati', '2')
+pos = [out.find(f'REPARTO {r}') for r in 'PDCA']
+t('socio asta: il piano esce reparto per reparto nell ordine di chiamata',
+  rc == 0 and all(x >= 0 for x in pos) and pos == sorted(pos), out[-600:])
+t('socio asta: ogni candidato ha un etichetta', rc == 0 and any(e in out for e in ('affare', 'da giocare', 'lascia')))
+rc, out = lancia('socio.py', '--lega', os.path.join(lega_b7, 'lega.json'), 'asta', '--rigioca')
+t('socio asta --rigioca: log delle decisioni e confronto con la rosa vera',
+  rc == 0 and 'CONFRONTO' in out and ('preso' in out or 'libero' in out), out[-600:])
+json.dump({'mia': 'Mia', 'file': {'listone': 'manca.csv', 'prezzi': 'prezzi.csv'}},
+          open(os.path.join(lega_b7, 'lega_rotta.json'), 'w'))
+rc, out = lancia('socio.py', '--lega', os.path.join(lega_b7, 'lega_rotta.json'), 'asta')
+t('socio asta senza listone: messaggio, codice di errore, niente traceback',
+  rc != 0 and 'Traceback' not in out and 'listone' in out, out[-300:])
 
 # ================================================== esito
 print('\n' + '=' * 74)

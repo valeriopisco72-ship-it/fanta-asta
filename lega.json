@@ -117,5 +117,15 @@
   "rose": "rose.csv",
   "prezzi": "prezzi_lega_2026-27.csv",
   "listone": "listone_completo.csv"
+ },
+ "asta": {
+  "_nota": "vincoli dello studio d asta (docs/studio-asta-2026-27.md): crediti totali sui portieri, quanti giocatori al massimo nella fascia media",
+  "ordine": "PDCA",
+  "portieri_max": 10,
+  "fascia_media": [
+   25,
+   49
+  ],
+  "fascia_media_max": 2
  }
 }

@@ -1,11 +1,12 @@
 # fanta-asta · il socio di fantacalcio
 
-> **Stato al 28/09/2026** — 150/150 test del socio + 68/68 dell'asta verdi
-> (`python tests/qa_socio.py`, `python tests/qa_fanta.py`).
+> **Stato al 28/09/2026** — 155/155 test del socio, 68/68 dell'asta, 63/63 del piano d'asta
+> (`python tests/qa_socio.py`, `python tests/qa_fanta.py`, `python tests/qa_asta.py`).
 >
 > | | |
 > |---|---|
 > | ✅ **Prezzi d'asta** tarati sulla tua lega (VORP, somma zero, termometro live) | solido, testato |
+> | 🆕 **Piano d'asta e prezzo massimo vero** (`socio.py asta`) | testato; rigiocato sull'asta del 05/09 |
 > | ✅ **Titolarità osservata** dalle probabili formazioni (`formazioni.py`) | +22% di accordo col mercato |
 > | ✅ **Analisi calcistica** (xG/xA, contesto tattico, allenatori) | solido, con limiti dichiarati |
 > | ✅ **Pavimento di sostituzione** | **contato**, non più stimato: i titolari veri di Serie A |
@@ -114,6 +115,43 @@ fisso sul voto puro, 5 cambi a pari ruolo, fasce gol 66 + 6. Quello che non è s
   squadra (se la difesa prende 4 gol soffrono tutti), il "cambio modulo" di alcune leghe.
 
 Il piano di lavoro con le scelte e i perché è in [`docs/piano-socio.md`](docs/piano-socio.md).
+
+## Il piano d'asta — `socio.py asta` (nuovo)
+
+Tre domande, tre comandi:
+
+```
+python socio.py asta --mercato            # quanto paga la TUA lega (modello per ruolo x fascia FVM)
+python socio.py asta                      # il piano: la rosa da fare e il prezzo massimo di ognuno
+python socio.py asta --live asta.json     # a meta' asta: il piano rifatto con quello che e' successo
+python socio.py asta --rigioca            # l'asta del 05/09 rigiocata col piano, per vedere se serve
+```
+
+Per ogni giocatore due numeri:
+
+- **forchetta** (25°-50°-75° percentile): quanto lo pagherà la tua lega. Viene dai prezzi veri
+  del 05/09, cella per cella, col modello che sbaglia meno *su giocatori che non ha visto*
+  (leave-one-out). Sotto FVM 50 l'errore è ~5 crediti; sui top ±20.
+- **tetto**: il prezzo oltre il quale la rosa migliore la fai **senza** di lui. Non è "quanto
+  vale": è il prezzo di indifferenza fra la miglior rosa con lui e la miglior rosa senza, stesso
+  budget, stessi vincoli. Tiene conto delle alternative: se c'è un clone da 3 crediti, il tetto
+  crolla.
+
+Etichette: **affare** (tetto sopra la forchetta: rilancia), **da giocare** (tetto dentro),
+**lascia** (la lega lo pagherà più di quanto ti serve), **fuori piano**. Accanto, le 2
+alternative più vicine per valore: se lo perdi, vai su di loro.
+
+I vincoli dello studio d'asta stanno in `lega.json` → `asta`: crediti totali sui portieri
+(`portieri_max`, 10) e quanti giocatori al massimo nella fascia peggiore (`fascia_media`
+25-49, `fascia_media_max` 2). Lo stato live è un json:
+`{"mio_budget": 380, "venduti": [{"nome": "Thuram", "prezzo": 120, "mio": true}, ...]}`.
+
+**Tempi**: il piano completo sul listone vero (592 giocatori) richiede ~4 minuti, perché
+ogni tetto è una ricerca per bisezione di rose ottime. Durante l'asta usa
+`--candidati 0` (tetto solo per i giocatori del piano).
+
+Il verdetto del rigioco (serve o no) è in
+[`docs/studio-asta-2026-27.md`](docs/studio-asta-2026-27.md#rigioco).
 
 ---
 

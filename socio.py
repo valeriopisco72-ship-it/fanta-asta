@@ -469,6 +469,17 @@ def cmd_lega(C, A):
 
 def cmd_asta(C, A):
     import mercato_asta
+    import piano_asta
+    if not A.mercato:
+        titolo = 'ASTA: rigioco del 05/09' if A.rigioca else \
+            ('ASTA: piano live' if A.live else 'ASTA: piano d asta e prezzo massimo')
+        intestazione(C, titolo)
+        rc = piano_asta.esegui(C.R, C.file['listone'], C.file['prezzi'],
+                               'rigioca' if A.rigioca else 'piano', A.candidati, A.live)
+        if rc:
+            raise SystemExit(rc)
+        print()
+        return
     if not os.path.exists(C.file['prezzi']):
         raise SystemExit(f'\n[!] prezzi d asta non trovati: {C.file["prezzi"]} '
                          '(FantaSquadra;Nome;Ruolo;Pagato;FVM, in lega.json -> file.prezzi)\n')
@@ -513,6 +524,9 @@ def main(argv=None):
             p.add_argument('--top', type=int, default={'svincolati': 15, 'proposte': 10, 'asta': 25}[nome])
         if nome == 'asta':
             p.add_argument('--mercato', action='store_true', help='solo il prezzo di mercato della lega')
+            p.add_argument('--candidati', type=int, default=12, help='giocatori con tetto per reparto')
+            p.add_argument('--live', default=None, help='stato dell asta in corso (json)')
+            p.add_argument('--rigioca', action='store_true', help='rigioca l asta del 05/09 col piano')
     A = ap.parse_args(argv)
     if not A.cmd:
         ap.print_help()
