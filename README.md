@@ -1,6 +1,6 @@
 # fanta-asta · il socio di fantacalcio
 
-> **Stato al 28/09/2026** — 114/114 test del socio + 68/68 dell'asta verdi
+> **Stato al 28/09/2026** — 132/132 test del socio + 68/68 dell'asta verdi
 > (`python tests/qa_socio.py`, `python tests/qa_fanta.py`).
 >
 > | | |
@@ -82,9 +82,16 @@ Esempio minimo di `lega.json`:
  "soglie": [66, 72, 77, 81, 85, 89],
  "max_sostituzioni": 5,
  "panchina": 12,
+ "rendimento": {"attivo": true},
+ "capitano": {"attivo": true, "giocatore": "Gonzalez N.", "vice": "Rabiot"},
  "calendario_lega": {"6": "FC Avversari", "7": "FC Altri"}
 }
 ```
+
+Il `lega.json` nella radice del repo è quello vero della lega *porcodidiosanto*: modificatore
+difesa a 5 fasce (6 / 6,25 / 6,5 / 6,75 / 7 → +1 / +2 / +3 / +4,5 / +6), rendimento, capitano
+fisso sul voto puro, 5 cambi a pari ruolo, fasce gol 66 + 6. Quello che non è stato osservato
+(bonus individuali, lunghezza della panchina) è elencato nel file sotto `_da_verificare`.
 
 ### Cosa è misurato e cosa no
 

@@ -111,6 +111,19 @@ class Contesto:
                                f'squadre trovate {", ".join(self.rose)}')
         if not self.rose:
             self.avvisi.append(f'rose assenti ({self.file["rose"]}): servono per formazione e mercato')
+        cap = self.R.get('capitano') or {}
+        if cap.get('attivo') and self.mia:
+            for campo, dest in (('giocatore', 'k'), ('vice', 'kv')):
+                if not cap.get(campo) or cap.get(dest):
+                    continue
+                trovati = nomi.cerca(cap[campo], self.mia)
+                if len(trovati) == 1:
+                    cap[dest] = trovati[0]
+                else:
+                    self.avvisi.append(
+                        f'{"capitano" if dest == "k" else "vice"} "{cap[campo]}" '
+                        + ('non e nella tua rosa' if not trovati else f'ambiguo: {", ".join(trovati)}')
+                        + ': fattore capitano non applicato per lui')
         if self.mia:
             ignoti = [k for k in self.mia if k not in self.E_base]
             if ignoti:

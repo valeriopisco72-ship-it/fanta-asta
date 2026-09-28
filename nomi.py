@@ -41,6 +41,17 @@ def squadra(s):
     return n
 
 
+def cerca(nome, chiavi):
+    """Chiavi che contengono tutte le parole di `nome`, in qualunque ordine:
+    'N. Gonzalez' trova 'gonzalez n'. Serve per i nomi scritti a mano (capitano,
+    scambi); chi chiama decide cosa fare se i risultati sono zero o piu' d'uno."""
+    k = giocatore(nome)
+    if k in chiavi:
+        return [k]
+    parole = set(k.split())
+    return [c for c in chiavi if parole and parole <= set(c.split())]
+
+
 def giocatore(s):
     """'Soulé M.' -> 'soule m'. I file di Fantacalcio.it usano tutti lo stesso
     formato 'Cognome I.', quindi il join e' esatto dopo aver tolto accenti e

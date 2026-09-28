@@ -49,9 +49,7 @@ def punti_reali(form, reali, R):
                 cambi += 1
                 finali.append(sub)
     tot = sum(reali[g['k']]['fv'] for g in finali)
-    por = next((reali[g['k']]['voto'] for g in finali if g['ruolo'] == 'P'), None)
-    tot += regole.modificatore(por, [reali[g['k']]['voto'] for g in finali if g['ruolo'] == 'D'], R)
-    return tot
+    return tot + schiera.bonus_squadra(finali, {g['k']: reali[g['k']]['voto'] for g in finali}, R)
 
 
 def _ingenua(rosa, S, R):

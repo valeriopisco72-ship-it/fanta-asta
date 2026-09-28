@@ -173,11 +173,24 @@ def punteggi(form, E, R):
                 usati.add(sub['k'])
                 cambi += 1
                 finali.append(sub)
-        tot = sum(E[g['k']][2][s] for g in finali)
-        por = next((E[g['k']][1][s] for g in finali if g['ruolo'] == 'P'), None)
-        tot += regole.modificatore(por, [E[g['k']][1][s] for g in finali if g['ruolo'] == 'D'], R)
-        out.append(tot)
+        voto = {g['k']: E[g['k']][1][s] for g in finali}
+        out.append(sum(E[g['k']][2][s] for g in finali) + bonus_squadra(finali, voto, R))
     return out
+
+
+def bonus_squadra(finali, voto, R):
+    """Modificatore difesa + rendimento + capitano, sui voti PURI di chi e' sceso
+    in campo (dopo i cambi). `voto` = {chiave: voto puro}."""
+    por = next((voto[g['k']] for g in finali if g['ruolo'] == 'P'), None)
+    b = regole.modificatore(por, [voto[g['k']] for g in finali if g['ruolo'] == 'D'], R)
+    b += regole.rendimento([voto[g['k']] for g in finali], R)
+    cap = R.get('capitano') or {}
+    if cap.get('attivo'):
+        # il vice vale solo se il capitano non e' sceso in campo
+        k = next((x for x in (cap.get('k'), cap.get('kv')) if x and x in voto), None)
+        if k:
+            b += regole.capitano(voto[k], R)
+    return b
 
 
 def scontro(miei, suoi, R):

@@ -101,6 +101,38 @@ t('lega.json sovrascrive solo cio che dichiara',
   R_file['formula'] == 'punti' and R_file['squadre'] == 8 and regole.gol(64, R_file) == 2
   and R_file['bonus']['assist'] == R['bonus']['assist'], grave=True)
 
+# --- regole della lega "porcodidiosanto" (osservate nell'app il 08/09/2026) ---
+R_pds = regole.carica_lega(None, {
+    'modificatore': {'fasce': [[6.0, 1], [6.25, 2], [6.5, 3], [6.75, 4.5], [7.0, 6]]},
+    'rendimento': {'attivo': True},
+    'capitano': {'attivo': True}})
+t('modificatore a 5 fasce: 6.25 -> +2, 6.75 -> +4.5, 6.74 -> +3',
+  (regole.modificatore(6.25, [6.25] * 4, R_pds), regole.modificatore(6.75, [6.75] * 4, R_pds),
+   regole.modificatore(6.74, [6.74] * 4, R_pds)) == (2, 4.5, 3), grave=True)
+R_nop = regole.carica_lega(None, {'modificatore': {'portiere_incluso': False}})
+t('senza portiere il modificatore fa la media dei 4 migliori difensori',
+  regole.modificatore(3.0, [7, 7, 7, 7, 4], R_nop) == 6
+  and regole.modificatore(None, [7, 7, 7, 7], R_nop) == 6, grave=True)
+t('CONTROPROVA: col portiere incluso lo stesso portiere da 3 abbassa la media',
+  regole.modificatore(3.0, [7, 7, 7, 7, 4], R) == 1)
+
+t('rendimento: 8 sufficienze su 11 -> +0.5, 9 -> +1, 10 -> +2, 11 -> +3',
+  [regole.rendimento([6.0] * k + [5.5] * (11 - k), R_pds) for k in (7, 8, 9, 10, 11)]
+  == [0, 0.5, 1, 2, 3], str([regole.rendimento([6.0] * k + [5.5] * (11 - k), R_pds)
+                             for k in (7, 8, 9, 10, 11)]), grave=True)
+t('rendimento: se non prendono voto tutti e 11, niente',
+  regole.rendimento([7.0] * 10, R_pds) == 0 and regole.rendimento([7.0] * 10 + [None], R_pds) == 0,
+  grave=True)
+t('CONTROPROVA: rendimento spento di default', regole.rendimento([7.0] * 11, R) == 0, grave=True)
+
+t('capitano sul voto puro: 4.5 -1.5 | 5 -1 | 5.5 -0.5 | 6 0 | 6.5 +0.5 | 7 +1 | 8 +1.5',
+  [regole.capitano(v, R_pds) for v in (4.5, 5, 5.5, 6, 6.5, 7, 8)]
+  == [-1.5, -1, -0.5, 0, 0.5, 1, 1.5],
+  str([regole.capitano(v, R_pds) for v in (4.5, 5, 5.5, 6, 6.5, 7, 8)]), grave=True)
+t('capitano: 4 -> -1.5 (sotto la scala), senza voto -> 0',
+  regole.capitano(4.0, R_pds) == -1.5 and regole.capitano(None, R_pds) == 0)
+t('CONTROPROVA: capitano spento di default', regole.capitano(8, R) == 0, grave=True)
+
 # ================================================== 2. nomi e voti
 import nomi  # noqa: E402
 import voti  # noqa: E402
@@ -112,6 +144,13 @@ t('squadra: sigla, nome esteso e prefisso societario -> stessa chiave',
   and nomi.squadra('Hellas Verona') == nomi.squadra('Verona'), grave=True)
 t('CONTROPROVA: squadre sconosciute NON collassano sulle prime tre lettere',
   nomi.squadra('Team01') != nomi.squadra('Team02'), grave=True)
+rosa_nomi = [nomi.giocatore(x) for x in ('Gonzalez N.', 'Rabiot', 'Martinez L.', 'Martinez J.')]
+t('cerca: "N. Gonzalez" trova "Gonzalez N." (ordine libero)',
+  nomi.cerca('N. Gonzalez', rosa_nomi) == [nomi.giocatore('Gonzalez N.')], grave=True)
+t('cerca: un cognome solo trova il giocatore se e unico',
+  nomi.cerca('Rabiot', rosa_nomi) == [nomi.giocatore('Rabiot')], grave=True)
+t('CONTROPROVA: cognome condiviso -> piu risultati, nessuno scelto a caso',
+  len(nomi.cerca('Martinez', rosa_nomi)) == 2)
 t('giocatore: accenti e maiuscole non contano',
   nomi.giocatore('Soulé M.') == nomi.giocatore('soule m.'), grave=True)
 
@@ -431,6 +470,41 @@ t('da FAVORITO sceglie il giocatore piu affidabile',
 t('la probabilita di vittoria e coerente: favorito > sfavorito',
   sd_['migliore']['p_v'] > sf['migliore']['p_v'] + 0.3,
   f"{sd_['migliore']['p_v']:.2f} vs {sf['migliore']['p_v']:.2f}", grave=True)
+# capitano e rendimento nella simulazione (regole della lega porcodidiosanto)
+Rc = regole.carica_lega(None, {'moduli': ['4-4-2'], 'rendimento': {'attivo': True},
+                               'capitano': {'attivo': True, 'k': 'C0', 'kv': 'C1'}})
+fisso2 = [dict(g, sd=0.01, sd_v=0.01, mv=7.1 if g['k'] == 'C0' else 6.1) for g in rosa_base()]
+f2 = schiera.formazione(fisso2, '4-4-2', Rc)
+NS = 400                                         # il bonus ha dispersione minima ~0.22
+
+
+def media_sim(rosa, form, R_):
+    return sum(schiera.punteggi(form, schiera.estrazioni(rosa, NS, seme=2), R_)) / NS
+
+
+mod61 = regole.modificatore(6.1, [6.1] * 4, Rc)
+m2 = media_sim(fisso2, f2, Rc)
+mano2 = sum(g['mu'] for g in f2['titolari']) + mod61 + 3 + 1   # rendimento 11/11, capitano 7.1
+t('simulazione: capitano (+1 col 7) e rendimento (+3 con 11 sufficienze) sommati',
+  abs(m2 - mano2) < 0.1, f'{m2:.2f} vs {mano2:.2f}', grave=True)
+# capitano fuori (p=0): conta il vice, che qui ha 7.1 -> +1
+fisso3 = [dict(g, p=0.0) if g['k'] == 'C0' else dict(g, mv=7.1) if g['k'] == 'C1' else g for g in fisso2]
+f3_ = schiera.formazione(fisso3, '4-4-2', Rc)
+m3_ = media_sim(fisso3, f3_, Rc)
+t('se il capitano non gioca vale il vice',
+  'C0' not in {g['k'] for g in f3_['titolari']}
+  and abs(m3_ - (sum(g['mu'] for g in f3_['titolari']) + mod61 + 3 + 1)) < 0.1, f'{m3_:.2f}', grave=True)
+Rc0 = regole.carica_lega(None, {'moduli': ['4-4-2'], 'rendimento': {'attivo': True},
+                                'capitano': {'attivo': True, 'k': 'C0'}})
+m3b = media_sim(fisso3, f3_, Rc0)
+t('CONTROPROVA: senza vice, capitano fuori = nessun fattore capitano',
+  abs(m3b - (m3_ - 1)) < 0.1, f'{m3b:.2f} vs {m3_ - 1:.2f}', grave=True)
+fisso4 = [dict(g, mv=5.5) if g['ruolo'] == 'A' else g for g in fisso2]
+f4_ = schiera.formazione(fisso4, '4-4-2', Rc)
+m4_ = media_sim(fisso4, f4_, Rc)
+t('CONTROPROVA: due attaccanti da 5.5 -> 9 sufficienze -> rendimento +1 invece di +3',
+  abs(m4_ - (sum(g['mu'] for g in f4_['titolari']) + mod61 + 1 + 1)) < 0.1, f'{m4_:.2f}', grave=True)
+
 monco = [g for g in rosa_base() if g['ruolo'] != 'P']
 rm = schiera.consiglia(RR, Rs, avversario=monco, n=300)
 t('avversario con rosa incompleta: si ottimizza la media e lo si dice, niente crash',
@@ -499,6 +573,17 @@ t('negli scontri diretti restituisce le probabilita di esito',
 t('le probabili valgono per la prossima giornata, non per quelle dopo',
   C.stime_giornata(6)[C.mia[0]]['p'] in (proiezioni.P_XI, proiezioni.P_FUORI, 0.0)
   and C.stime_giornata(7)[C.mia[0]].get('fonte_p') != 'probabili', grave=True)
+
+lj_cap = json.load(open(lega_st, encoding='utf-8'))
+cap_nome, vice_nome = C.E_base[C.mia[0]]['nome'], C.E_base[C.mia[1]]['nome']
+lj_cap['capitano'] = {'attivo': True, 'giocatore': cap_nome, 'vice': 'Nessuno Z.'}
+lega_cap = os.path.join(cart_st, 'lega_cap.json')
+json.dump(lj_cap, open(lega_cap, 'w', encoding='utf-8'))
+Cc = socio.Contesto(lega_cap)
+t('il capitano scritto in lega.json viene trovato nella rosa',
+  Cc.R['capitano'].get('k') == C.mia[0], str(Cc.R['capitano']), grave=True)
+t('CONTROPROVA: un vice che non e in rosa viene dichiarato, non inventato',
+  'kv' not in Cc.R['capitano'] and any('vice' in a for a in Cc.avvisi), str(Cc.avvisi), grave=True)
 
 qui = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
