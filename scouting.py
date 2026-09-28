@@ -261,3 +261,40 @@ def gioielli(liberi_stimati, guadagni, budget, slot):
         tetto = TETTO_PORTIERE if g.get('ruolo') == 'P' else TETTO_GIOIELLO
         out.append(dict(g, guadagno=guadagni[g['k']], prezzo_max=min(pieno, tetto), tagliato=max(0.0, pieno - tetto)))
     return out
+
+
+# ------------------------------------------------------------------ CLI
+
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    ap.add_argument('--valida', nargs='+', metavar='SCHEDA.json', required=True,
+                    help='controlla una o piu schede prima di metterle in scouting/')
+    A = ap.parse_args(argv)
+    rc = 0
+    for f in A.valida:
+        try:
+            with open(f, encoding='utf-8') as fh:
+                s = json.load(fh)
+        except (OSError, ValueError) as e:
+            print(f'[!] {f}: non leggibile ({e.__class__.__name__}: {e})')
+            rc = 1
+            continue
+        err = valida(s)
+        if err:
+            rc = 1
+            print(f'[!] {f}: {len(err)} errori')
+            for e in err:
+                print(f'    - {e}')
+            continue
+        i, c = indice(s)
+        mancano = [k for k in KPI if k not in (s.get('kpi') or {})]
+        print(f'ok  {f}: valida - indice {i:+.2f}, confidenza {c:.0%}'
+              + (f'; KPI non documentati (valgono 0): {", ".join(mancano)}' if mancano else ''))
+        if not isinstance(s.get('giornata'), int):
+            print('    nota: senza "giornata" la scheda non entra nella verifica')
+    return rc
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

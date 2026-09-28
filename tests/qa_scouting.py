@@ -285,6 +285,26 @@ t('socio verifica --scouting: una riga per KPI, e quante schede sono misurabili'
   rc == 0 and 'VERIFICA DELLO SCOUTING' in out and 'carattere' in out and 'misurabili' in out, out[-900:])
 
 
+# ================================================== C5. validazione da riga di comando (per la skill)
+print('\n[C5] python scouting.py --valida')
+QUI_ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def valida_cli(*files):
+    r = subprocess.run([sys.executable, os.path.join(QUI_, 'scouting.py'), '--valida'] + list(files),
+                       capture_output=True, text=True, cwd=tmp)
+    return r.returncode, r.stdout + r.stderr
+
+
+rc, out = valida_cli(os.path.join(sdir, 'gioiello.json'))
+t('scheda valida: codice 0, lo dice, con indice e confidenza', rc == 0 and 'valida' in out and 'confidenza' in out,
+  out)
+rc, out = valida_cli(os.path.join(sdir, 'chiacchiera.json'), os.path.join(sdir, 'rotto.json'))
+t('scheda con errori: codice 1 e ogni errore scritto', rc == 1 and 'senza fonte' in out and 'rotto.json' in out, out)
+rc, out = valida_cli(os.path.join(tmp, 'non_esiste.json'))
+t('file mancante: codice 1, niente traceback', rc == 1 and 'Traceback' not in out, out)
+
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)
