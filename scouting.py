@@ -138,3 +138,79 @@ def carica(cartella):
             s, f = nuova, f_nuova
         schede[k], da_file[k] = s, f
     return schede, errori
+
+
+# ------------------------------------------------------------------ CORREZIONE
+
+MAX_MU = 0.6         # fantavoto: mai piu' di +-0.6
+MAX_P = 0.15         # probabilita' di giocare: mai piu' di +-0.15
+P_MIN, P_MAX = 0.02, 0.98
+
+
+def _trova(scheda, k, chiavi):
+    """La chiave delle stime per la scheda: esatta, o per parole se unica. (chiave, problema)."""
+    if k in chiavi:
+        return k, None
+    trovati = nomi.cerca(scheda['nome'], chiavi)
+    if len(trovati) == 1:
+        return trovati[0], None
+    if not trovati:
+        return None, f'scouting: {scheda["nome"]} non e fra i giocatori stimati, scheda ignorata'
+    return None, (f'scouting: {scheda["nome"]} ambiguo ({", ".join(sorted(trovati)[:4])}), '
+                  'scheda ignorata: scrivi il nome come nel listone')
+
+
+def applica(E, schede, oggi, avvisi=None):
+    """Una COPIA delle stime con la correzione dello scouting.
+
+    p += MAX_P * spazio/2 (tagliata a [0.02, 0.98]); mu += MAX_MU * indice senza
+    'spazio' (lo spazio agisce gia' su p: contarlo due volte gonfierebbe la
+    correzione). Schede scadute (oltre 60 giorni) o con data futura non si applicano.
+    `avvisi`, se data, riceve cio' che non e' stato applicato e perche'."""
+    avvisi = avvisi if avvisi is not None else []
+    oggi_d = _data(oggi)
+    out = dict(E)
+    chiavi = [k for k in E if not k.startswith('_')]
+    for k, s in sorted(schede.items()):
+        d = _data(s.get('data'))
+        if d is None or d > oggi_d:
+            continue
+        if (oggi_d - d).days > SCADENZA_GIORNI:
+            avvisi.append(f'scouting: scheda di {s["nome"]} scaduta ({s["data"]}, oltre {SCADENZA_GIORNI} '
+                          'giorni): non applicata, rifalla')
+            continue
+        chiave, problema = _trova(s, k, chiavi)
+        if problema:
+            avvisi.append(problema)
+            continue
+        validi = _kpi_validi(s)
+        g = dict(out[chiave])
+        if 'spazio' in validi:
+            g['p'] = min(P_MAX, max(P_MIN, g['p'] + MAX_P * validi['spazio']['voto'] / 2))
+        g['mu'] = g['mu'] + MAX_MU * indice(s, escludi=('spazio',))[0]
+        g['fonte'] = (g.get('fonte') or 'stima') + f' + scouting ({s["data"]})'
+        out[chiave] = g
+    return out
+
+
+# ------------------------------------------------------------------ SEGNALI
+
+def segnali(g, neopromosse):
+    """I segnali strutturali (dai dati, niente ricerca) per cui vale la pena schedare g.
+
+    Misurati sulla lega 2026/27 (pagati <= 5 crediti, FM >= 7 = colpo):
+    attaccanti di neopromosse 4 su 10, altri attaccanti 2 su 16, difensori e
+    portieri economici 0 su 41."""
+    neo = {nomi.squadra(x) for x in neopromosse}
+    out = []
+    r, sq = g.get('ruolo'), nomi.squadra(g.get('squadra') or '')
+    if r == 'A' and sq in neo:
+        out.append('attaccante di neopromossa (4 colpi su 10 fra i pagati <= 5)')
+    elif r == 'A':
+        out.append('attaccante (2 colpi su 16 fra i pagati <= 5)')
+    elif r == 'C' and sq in neo:
+        out.append('centrocampista di neopromossa (minuti garantiti, non misurato)')
+    q = g.get('quota')
+    if out and q is not None and q <= 5:
+        out.append(f'quotazione bassa ({q:g})')
+    return out

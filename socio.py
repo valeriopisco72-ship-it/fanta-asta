@@ -26,6 +26,7 @@ file in piu' (voti, calendario, probabili) rende le stime migliori.
 Per provarlo senza dati veri:  python esempio.py --stagione
 """
 import argparse
+import datetime
 import os
 import sys
 
@@ -37,11 +38,12 @@ import nomi
 import proiezioni
 import regole
 import schiera
+import scouting
 import voti
 
 FILE_DEFAULT = {'listone': 'listone_completo.csv', 'voti': 'voti', 'calendario': 'calendario.csv',
                 'rose': 'rose.csv', 'titolari': 'titolari.csv', 'squadre': 'squadre_2025-26.csv',
-                'tabella': 'statistiche_rose.csv', 'prezzi': 'prezzi_lega.csv'}
+                'tabella': 'statistiche_rose.csv', 'prezzi': 'prezzi_lega.csv', 'scouting': 'scouting'}
 XI_VECCHIO = 3   # giorni: oltre, le probabili si dichiarano vecchie
 
 
@@ -129,6 +131,14 @@ class Contesto:
             self.E_base = proiezioni.stima(S=self.S, listone=self.listone, titolari=None,
                                            R=self.R, prossima=False)
 
+        # scouting: schede qualitative in scouting/, correzione limitata e dichiarata
+        self.schede, errori = scouting.carica(self.file['scouting'])
+        self.avvisi += [f'scouting: {e}' for e in errori]
+        if self.schede:
+            oggi = datetime.date.today().isoformat()
+            self.E_ora = scouting.applica(self.E_ora, self.schede, oggi, self.avvisi)
+            self.E_base = scouting.applica(self.E_base, self.schede, oggi, [])
+
         # rose della lega
         self.rose = mercato.carica_rose(self.file['rose'])
         self.mia_nome = self.R.get('mia')
@@ -210,6 +220,8 @@ def intestazione(C, titolo):
         fonti.append(f'calendario ({C.F["fonte"]})')
     if C.titolari is not None:
         fonti.append(f'probabili ({len(C.titolari)} titolari)')
+    if C.schede:
+        fonti.append(f'scouting ({len(C.schede)} schede)')
     print('  dati: ' + (' | '.join(fonti) if fonti else 'NESSUNO'))
     for a in C.avvisi:
         print(f'  !! {a}')
