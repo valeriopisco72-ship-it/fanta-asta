@@ -114,9 +114,14 @@ class Contesto:
             self.E_base = proiezioni.stima_app([dict(r) for r in self.tabella], gg, self.R, None)
             if not self.R.get('giornate_giocate'):
                 self.avvisi.append(f'"giornate_giocate" non e in lega.json: assumo {gg}')
-            if not any(r.get('pv') is not None for r in self.tabella):
-                self.avvisi.append('la tabella non ha la colonna Pv: presenze STIMATE dai decimali '
-                                   'di MV e FM (aggiungi Pv per toglierle)')
+            senza_pv = [r for r in self.tabella if r.get('pv') is None]
+            if senza_pv:
+                mie_senza = sum(1 for r in senza_pv
+                                if str(r.get('fantasquadra', '')).lower() == str(self.R.get('mia', '')).lower())
+                self.avvisi.append(f'Pv mancante per {len(senza_pv)}/{len(self.tabella)} giocatori'
+                                   + (f' (di cui {mie_senza} tuoi)' if mie_senza else ' (nessuno dei tuoi)')
+                                   + ': presenze STIMATE dai decimali, giuste 16/17 sulle medie non tonde, '
+                                   'a caso sulle tonde')
         else:
             self.E_ora = proiezioni.stima(S=self.S, listone=self.listone, titolari=self.titolari,
                                           R=self.R, prossima=True)

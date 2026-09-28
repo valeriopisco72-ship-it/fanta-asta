@@ -250,6 +250,12 @@ def presenze_da_medie(mv, fm, giornate):
     piu' piccolo n compatibile. Se lo sono tutti (medie tonde: 6,00 / 6,00) il
     dato non dice niente e si prende meta' delle giornate. [STIMA] dichiarata:
     con la colonna Pv dell'app questa funzione non serve.
+
+    Misurata il 28/09/2026 sulla rosa vera di AL DOMORO (Pv ufficiali, 5
+    giornate): 16/17 giuste sulle medie non tonde; sulle 6 medie tonde le
+    presenze vere erano 1, 5, 1, 1, 3, 4 - non ricavabili, e nessuna regola le
+    indovina. Scegliere il piu' grande n compatibile invece del piu' piccolo da'
+    lo stesso 16/17: non e' li' l'errore.
     """
     if not mv:
         return 0
