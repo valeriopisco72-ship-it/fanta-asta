@@ -753,6 +753,31 @@ t('socio lega: forza delle squadre e P(vittoria) col prossimo avversario',
 rc, out = lancia('--lega', os.path.join(tab_lega, 'lega.json'), 'proposte', '--giornate', '1')
 t('socio proposte: gira', rc == 0 and 'SCAMBI' in out, out[-300:])
 
+# ================================================== 10. studio dell'asta
+import studio_asta  # noqa: E402
+print("\n[10] studio dell'asta: resa per fascia di prezzo")
+
+
+def gz(fs, costo, fvm, fm, mv=6.0):
+    return {'fantasquadra': fs, 'nome': f'x{costo}{fvm}', 'ruolo': 'A', 'costo': costo,
+            'fvm': fvm, 'fm': fm, 'mv': mv}
+
+
+Tz = [gz('A', 1, 10, 7.5), gz('A', 40, 20, 6.0), gz('A', 40, 20, 6.0), gz('B', 100, 130, 8.0), gz('B', 1, 2, 5.5, None)]
+k = studio_asta.prepara(Tz)
+t('il FVMp viene riportato sulla scala dei crediti: stesso totale',
+  abs(sum(r['valore'] for r in Tz) - sum(r['costo'] for r in Tz)) < 1e-9, grave=True)
+F_ = {f['da']: f for f in studio_asta.fasce(Tz)}
+t('resa per fascia = valore di oggi / crediti spesi (fascia 25-49: 80 spesi, valgono 40*k)',
+  abs(F_[25]['resa'] - 40 * k / 80) < 1e-9, f"{F_[25]['resa']:.3f}", grave=True)
+t('crediti per trovare un FM>=7: la fascia 25-49 non ne ha trovato nessuno (nan)',
+  F_[25]['top'] == 0 and F_[25]['crediti_per_top'] != F_[25]['crediti_per_top'], grave=True)
+t('CONTROPROVA: chi non ha voto non entra nella fantamedia della fascia',
+  F_[0]['con_voto'] == 1 and F_[0]['fm'] == 7.5, str(F_[0]), grave=True)
+Sq = {s['squadra']: s for s in studio_asta.squadre(Tz)}
+t('quota dei primi 3 sul budget della squadra', abs(Sq['B']['top3'] - 1.0) < 1e-9
+  and abs(Sq['A']['top3'] - 1.0) < 1e-9 and Sq['A']['da30'] == 2 and Sq['B']['da1_2'] == 1, grave=True)
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)
