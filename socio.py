@@ -578,7 +578,25 @@ def cmd_verifica(C, A):
     import verifica
     intestazione(C, 'VERIFICA')
     rec = voti.archivio(C.file['voti'], R=C.R)
-    verifica.stampa(verifica.backtest(rec, C.listone, C.partite, C.R, C.mia), C.R)
+    if not A.scouting:
+        verifica.stampa(verifica.backtest(rec, C.listone, C.partite, C.R, C.mia), C.R)
+        print()
+        return
+    if not C.schede:
+        raise SystemExit(f'\n[!] nessuna scheda di scouting in {C.file["scouting"]}\n')
+    # la stima numerica di ogni giocatore e' quella fatta coi voti fino alla giornata della sua scheda
+    per_g, stime = {}, {}
+    for k, s in C.schede.items():
+        g0 = s.get('giornata')
+        if isinstance(g0, int):
+            if g0 not in per_g:
+                per_g[g0] = verifica.stime_prima(rec, C.listone, C.partite, C.R, g0 + 1)[1]
+            if k in per_g[g0]:
+                stime[k] = per_g[g0][k]
+    senza = sum(1 for s in C.schede.values() if not isinstance(s.get('giornata'), int))
+    if senza:
+        print(f'  !! {senza} schede senza "giornata": non si sa da dove misurarle, escluse')
+    verifica.stampa_kpi(verifica.verifica_kpi(C.schede, rec, stime), len(C.schede), len(stime))
     print()
 
 
@@ -605,6 +623,8 @@ def main(argv=None):
             p.add_argument('--candidati', type=int, default=12, help='giocatori con tetto per reparto')
             p.add_argument('--live', default=None, help='stato dell asta in corso (json)')
             p.add_argument('--rigioca', action='store_true', help='rigioca l asta del 05/09 col piano')
+        if nome == 'verifica':
+            p.add_argument('--scouting', action='store_true', help='misura i KPI delle schede di scouting')
         if nome == 'scouting':
             p.add_argument('azione', choices=['candidati', 'gioielli'])
             p.add_argument('--n', type=int, default=30, help='quanti candidati')

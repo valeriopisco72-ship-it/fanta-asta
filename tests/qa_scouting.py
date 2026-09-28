@@ -237,6 +237,54 @@ t('senza listone: messaggio, codice di errore, niente traceback',
   rc != 0 and 'listone' in out and 'Traceback' not in out, out[-300:])
 
 
+# ================================================== C4. verifica per KPI
+print('\n[C4] ogni KPI misurato, solo sulle giornate DOPO la scheda')
+import verifica  # noqa: E402
+
+
+def rec_(g, nome, fv):
+    return {'giornata': g, 'nome': nome, 'ruolo': 'A', 'squadra': 'X', 'voto': 6.0, 'fv': fv,
+            'gf': 0, 'gs': 0, 'rp': 0, 'rs': 0, 'rf': 0, 'au': 0, 'amm': 0, 'esp': 0, 'ass': 0}
+
+
+stime_uguali = {nomi.giocatore(n): {'mu': 6.5} for n in ('Alto A.', 'Basso B.')}
+rec = [rec_(g, 'Alto A.', 8.0) for g in range(1, 6)] + [rec_(g, 'Basso B.', 5.0) for g in range(1, 6)]
+sch = {nomi.giocatore('Alto A.'): dict(scheda('Alto A.', spazio=2), data='2026-09-10', giornata=3),
+       nomi.giocatore('Basso B.'): dict(scheda('Basso B.', spazio=-2), data='2026-09-10', giornata=3)}
+V = {r['kpi']: r for r in verifica.verifica_kpi(sch, rec, stime_uguali)}
+t('una riga per ognuno degli 8 KPI', set(V) == set(scouting.KPI))
+t('KPI predittivo: scarto positivo (alto +1.5, basso -1.5 -> 3)', abs(V['spazio']['scarto'] - 3.0) < 1e-9,
+  V['spazio'])
+t('conta i giocatori per gruppo', V['spazio']['n_alti'] == 1 and V['spazio']['n_bassi'] == 1)
+fut = [dict(r, fv=r['fv'] + (50 if r['giornata'] <= 3 else 0)) for r in rec]
+t('CONTROPROVA: le giornate fino a quella della scheda non contano',
+  V['spazio']['scarto'] == {r['kpi']: r for r in verifica.verifica_kpi(sch, fut, stime_uguali)}['spazio']['scarto'])
+fut2 = [dict(r, fv=r['fv'] + (50 if r['giornata'] > 3 and r['nome'] == 'Basso B.' else 0)) for r in rec]
+t('CONTROPROVA: le giornate dopo contano eccome',
+  {r['kpi']: r for r in verifica.verifica_kpi(sch, fut2, stime_uguali)}['spazio']['scarto'] < 0)
+t('KPI senza casi: nessun dato, non zero', V['carattere']['scarto'] is None and V['carattere']['n_alti'] == 0)
+presto = {k: dict(v, giornata=5) for k, v in sch.items()}
+t('scheda senza giornate dopo: nessun dato ancora', {r['kpi']: r for r in
+  verifica.verifica_kpi(presto, rec, stime_uguali)}['spazio']['scarto'] is None)
+t('a parita di stima numerica: lo scarto e contro la stima, non contro zero',
+  abs({r['kpi']: r for r in verifica.verifica_kpi(sch, rec, {nomi.giocatore('Alto A.'): {'mu': 8.0},
+       nomi.giocatore('Basso B.'): {'mu': 5.0}})}['spazio']['scarto']) < 1e-9)
+sv_ = rec + [dict(rec_(4, 'Alto A.', 0), fv=None)]
+t('i senza voto (fv None) non entrano nella media',
+  {r['kpi']: r for r in verifica.verifica_kpi(sch, sv_, stime_uguali)}['spazio']['scarto'] == V['spazio']['scarto'])
+senza_g = {k: {kk: vv for kk, vv in v.items() if kk != 'giornata'} for k, v in sch.items()}
+t('scheda senza giornata: non entra nella verifica (confine sconosciuto)',
+  {r['kpi']: r for r in verifica.verifica_kpi(senza_g, rec, stime_uguali)}['spazio']['scarto'] is None)
+
+altri = sorted(k for k in proiezioni_giocatori if k != scelto)[:2]
+for i, (k, v) in enumerate(zip(altri, (2, -2))):
+    with open(os.path.join(cart, 'scouting', f'g{i}.json'), 'w', encoding='utf-8') as f:
+        json.dump(dict(scheda(proiezioni_giocatori[k]['nome'], spazio=v), data=oggi, giornata=2), f)
+rc, out = lancia('--lega', lega_st, 'verifica', '--scouting')
+t('socio verifica --scouting: una riga per KPI, e quante schede sono misurabili',
+  rc == 0 and 'VERIFICA DELLO SCOUTING' in out and 'carattere' in out and 'misurabili' in out, out[-900:])
+
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)

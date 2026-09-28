@@ -143,6 +143,56 @@ def stampa(righe, R):
     print(f'  {len(righe)} giornate sono {"poco" if len(righe) < 10 else "un discreto"} campione.')
 
 
+# ------------------------------------------------------------------ SCOUTING
+
+def verifica_kpi(schede, records, stime_numeriche):
+    """Lo scouting ci azzecca? Una riga per KPI.
+
+    Per ogni giocatore schedato: la media di (fantavoto vero - stima numerica)
+    SOLO nelle giornate dopo `giornata` della scheda (l'ultima giocata quando
+    e' stata scritta: niente futuro). scarto = media dei giocatori con voto >= 1
+    meno quella dei giocatori con voto <= -1; None se un gruppo e' vuoto.
+    Schede senza `giornata` non entrano: il confine non si conosce."""
+    import scouting
+    residuo = {}
+    for k, s in schede.items():
+        g0 = s.get('giornata')
+        if not isinstance(g0, int) or k not in stime_numeriche:
+            continue
+        fv = [r['fv'] for r in records if r['giornata'] > g0 and r.get('fv') is not None
+              and voti.nomi.giocatore(r['nome']) == k]
+        if fv:
+            residuo[k] = sum(fv) / len(fv) - stime_numeriche[k]['mu']
+    righe = []
+    for kpi in scouting.KPI:
+        alti, bassi = [], []
+        for k, res in residuo.items():
+            v = scouting._kpi_validi(schede[k]).get(kpi)
+            if v and v['voto'] >= 1:
+                alti.append(res)
+            elif v and v['voto'] <= -1:
+                bassi.append(res)
+        scarto = sum(alti) / len(alti) - sum(bassi) / len(bassi) if alti and bassi else None
+        righe.append({'kpi': kpi, 'n_alti': len(alti), 'n_bassi': len(bassi), 'scarto': scarto})
+    return righe
+
+
+def stampa_kpi(righe, n_schede, n_misurate):
+    print(f'\n=== VERIFICA DELLO SCOUTING: {n_misurate} schede misurabili su {n_schede} ===')
+    print('  scarto = (fantavoto - stima numerica) di chi ha voto alto meno chi ha voto basso,')
+    print('  solo nelle giornate DOPO la scheda. Positivo = il KPI vede qualcosa che i numeri non vedono.\n')
+    print(f'  {"KPI":<16}{"alti":>6}{"bassi":>7}{"scarto":>9}')
+    for r in righe:
+        sc = f'{r["scarto"]:>+9.2f}' if r['scarto'] is not None else '   nessun dato ancora'
+        print(f'  {r["kpi"]:<16}{r["n_alti"]:>6}{r["n_bassi"]:>7}{sc}')
+    misurati = [r for r in righe if r['scarto'] is not None]
+    if misurati and sum(r['scarto'] for r in misurati) / len(misurati) <= 0:
+        print('\n  LO SCOUTING NON BATTE I NUMERI su questi dati: i suoi pesi vanno abbassati.')
+    elif misurati:
+        print(f'\n  Casi pochi ({sum(r["n_alti"] + r["n_bassi"] for r in misurati)}): '
+              'e un indizio, non una prova. Ricalibra i pesi solo a fine girone.')
+
+
 def main():
     import socio
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
