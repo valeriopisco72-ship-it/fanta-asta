@@ -26,6 +26,7 @@ Spec: docs/superpowers/specs/2026-09-28-piano-asta-design.md (par. 4-8)
 """
 import random
 
+import nomi
 import proiezioni
 import regole
 import schiera
@@ -343,3 +344,73 @@ def piano(E, forchette, R, budget, slot, vincoli, ordine=('P', 'D', 'C', 'A'), c
                  'da 1-5': sum(1 for k in rosa if prezzi[k] < 6)}
     return {'rosa': rosa, 'costo': best['costo'], 'valore': best['valore'],
             'valore_esatto': best['valore_esatto'], 'reparti': reparti, 'struttura': struttura}
+
+
+# ------------------------------------------------------------------ LIVE
+
+def _chiave(nome, E):
+    """Il nome come scritto nello stato dell'asta -> chiave delle stime, o None."""
+    if nome in E:
+        return nome
+    k = nomi.giocatore(nome)
+    if k in E:
+        return k
+    return next((x for x, g in E.items() if nomi.giocatore(g['nome']) == k), None)
+
+
+def termometro(venduti, forchette, E):
+    """Quanto la lega sta pagando rispetto al previsto: somma pagata / somma delle
+    mediane previste dei venduti, tagliata fra 0,5 e 2. 1 senza vendite."""
+    pagato = previsto = 0.0
+    for v in venduti:
+        k = _chiave(v['nome'], E)
+        if k is not None and k in forchette:
+            pagato += float(v['prezzo'])
+            previsto += forchette[k][1]
+    if not previsto:
+        return 1.0
+    return min(2.0, max(0.5, pagato / previsto))
+
+
+def fattore_residuo(stato, forchette, E, R, slot=None):
+    """Somma zero, come fanta.mercato(): i crediti ancora in circolo nella lega divisi
+    per la spesa prevista sugli slot che restano (le mediane piu' alte fra i rimasti).
+    Se gli avversari strapagano bruciano crediti, e il resto costera' MENO; se
+    comprano a sconto, di piu'. Fra 0,5 e 2."""
+    slot = slot or R['slot']
+    venduti = stato.get('venduti', [])
+    fuori = {_chiave(v['nome'], E) for v in venduti}
+    crediti = R['squadre'] * R['budget'] - sum(float(v['prezzo']) for v in venduti)
+    slot_res = R['squadre'] * sum(slot.values()) - len(venduti)
+    resto = sorted((f[1] for k, f in forchette.items() if k not in fuori), reverse=True)[:max(slot_res, 0)]
+    if not resto or not sum(resto):
+        return 1.0
+    return min(2.0, max(0.5, crediti / sum(resto)))
+
+
+def ricalcola(stato, E, forchette, R, vincoli, slot=None, **kw):
+    """Il piano rifatto a meta' asta: i miei restano (al prezzo pagato), i venduti ad
+    altri spariscono, i prezzi dei rimasti si scalano a somma zero (fattore_residuo).
+    Il termometro si riporta come lettura, non entra nei prezzi."""
+    slot = slot or R['slot']
+    miei, altri, speso = [], set(), 0.0
+    for v in stato.get('venduti', []):
+        k = _chiave(v['nome'], E)
+        if k is None:
+            continue
+        if v.get('mio'):
+            miei.append(k)
+            speso += float(v['prezzo'])
+        else:
+            altri.add(k)
+    temp = termometro([v for v in stato.get('venduti', []) if not v.get('mio')], forchette, E)
+    fatt = fattore_residuo(stato, forchette, E, R, slot)
+    f2 = {k: tuple(x * fatt for x in f) for k, f in forchette.items() if k not in altri}
+    for v in stato.get('venduti', []):
+        k = _chiave(v['nome'], E)
+        if k in miei:
+            f2[k] = (float(v['prezzo']),) * 3
+    budget = float(stato.get('mio_budget', R['budget'])) + speso
+    P = piano(E, f2, R, budget, slot, vincoli, fissati=miei, esclusi=altri, **kw)
+    P['termometro'], P['fattore'] = temp, fatt
+    return P

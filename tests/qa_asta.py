@@ -249,6 +249,30 @@ t('i reparti seguono l ordine di chiamata', list(P_['reparti']) == ['P', 'D', 'C
 t('i bersagli sono esattamente la rosa del piano',
   sorted(r['k'] for rep in P_['reparti'].values() for r in rep['bersagli']) == sorted(P_['rosa']))
 
+print('\n[B5] asta live: termometro e ricalcolo')
+stato = {'venduti': [{'nome': E4[stella]['nome'], 'prezzo': 2 * prezzi[stella], 'mio': False}], 'mio_budget': 60, 'miei': []}
+t('termometro: pagato il doppio del previsto -> 2.0',
+  abs(piano_asta.termometro(stato['venduti'], forchette_finte(E4), E4) - 2.0) < 1e-9)
+t('termometro senza vendite = 1', piano_asta.termometro([], forchette_finte(E4), E4) == 1.0)
+t('termometro tagliato fra 0.5 e 2', piano_asta.termometro(
+  [{'nome': E4[stella]['nome'], 'prezzo': 100 * prezzi[stella], 'mio': False}], forchette_finte(E4), E4) == 2.0)
+Pl = piano_asta.ricalcola(stato, E4, forchette_finte(E4), Rm, vinc, slot=slot, candidati=2)
+t('venduto ad altri: mai nel piano', stella not in Pl['rosa'])
+mio = {'venduti': [{'nome': E4[stella]['nome'], 'prezzo': 10, 'mio': True}], 'mio_budget': 50,
+       'miei': [{'nome': E4[stella]['nome'], 'prezzo': 10}]}
+Pm = piano_asta.ricalcola(mio, E4, forchette_finte(E4), Rm, vinc, slot=slot, candidati=2)
+t('comprato da me: sempre nel piano, al prezzo pagato', stella in Pm['rosa'] and
+  next(r for r in Pm['reparti']['A']['bersagli'] if r['k'] == stella)['forchetta'] == (10, 10, 10))
+t('il budget del piano e il mio residuo + quanto ho gia speso', Pm['costo'] <= 60)
+# somma zero: chi strapaga brucia crediti -> il resto costa MENO (fanta.mercato, e i dati della lega)
+Rl = regole.carica_lega(None, {'squadre': 2, 'budget': 60})
+caro = {'venduti': [{'nome': E4[stella]['nome'], 'prezzo': 50, 'mio': False}], 'mio_budget': 60, 'miei': []}
+scon = {'venduti': [{'nome': E4[stella]['nome'], 'prezzo': 1, 'mio': False}], 'mio_budget': 60, 'miei': []}
+f_caro = piano_asta.fattore_residuo(caro, forchette_finte(E4), E4, Rl, slot)
+f_scon = piano_asta.fattore_residuo(scon, forchette_finte(E4), E4, Rl, slot)
+t('somma zero: se gli altri strapagano, il resto costera MENO', f_caro < 1.0, f'{f_caro:.2f}')
+t('CONTROPROVA: se comprano a sconto, il resto costera DI PIU', f_scon > f_caro, f'{f_scon:.2f} vs {f_caro:.2f}')
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)
