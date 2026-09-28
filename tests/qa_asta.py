@@ -118,6 +118,59 @@ rc, out = lancia('mercato_asta.py', '--prezzi', os.path.join(tmp, 'non_esiste.cs
 t('CLI: file mancante -> messaggio, codice di errore, niente traceback',
   rc != 0 and 'Traceback' not in out and 'non_esiste' in out, out[-300:])
 
+# ================================================== B. piano d'asta
+import itertools  # noqa: E402
+import regole  # noqa: E402
+import piano_asta  # noqa: E402
+
+
+def G(k, ruolo, mu, p=1.0, prezzo=1.0):
+    return {'k': k, 'nome': k, 'ruolo': ruolo, 'mu': mu, 'mv': min(mu, 6.3), 'p': p,
+            'sd': 1.0, 'sd_v': 0.5, 'stato': '', 'prezzo': prezzo}
+
+
+def rosa_sintetica():   # 3/8/8/6 decrescenti + extra 'XA0'..'XA7' (attaccanti liberi, mu 5.0..8.5)
+    r = [G(f'P{i}', 'P', 5.5 - .5 * i) for i in range(3)] + [G(f'D{i}', 'D', 6.6 - .2 * i) for i in range(8)]
+    r += [G(f'C{i}', 'C', 7.0 - .2 * i) for i in range(8)] + [G(f'A{i}', 'A', 7.5 - .3 * i) for i in range(6)]
+    return r + [G(f'XA{i}', 'A', 5.0 + .5 * i) for i in range(8)]
+
+
+def pool_piccolo():     # 3P 4D 4C 3A, prezzi 1..30, un solo attaccante nettamente migliore ('A0')
+    P = [G(f'P{i}', 'P', 5.0 + .3 * i, prezzo=1 + 4 * i) for i in range(3)]
+    D = [G(f'D{i}', 'D', 5.8 + .3 * i, prezzo=1 + 3 * i) for i in range(4)]
+    C = [G(f'C{i}', 'C', 6.0 + .4 * i, prezzo=1 + 5 * i) for i in range(4)]
+    A = [G('A0', 'A', 8.5, prezzo=20), G('A1', 'A', 6.2, prezzo=4), G('A2', 'A', 6.0, prezzo=1)]
+    return {g['k']: g for g in P + D + C + A}
+
+
+def combinazioni(E, slot):   # tutte le rose con esattamente slot[r] giocatori per ruolo
+    per = {r: [k for k in E if E[k]['ruolo'] == r] for r in slot}
+    return (sum(c, ()) for c in itertools.product(*(itertools.combinations(per[r], slot[r]) for r in 'PDCA')))
+
+
+def forchette_finte(E, k=1.0):   # q25/q50/q75 = prezzo * (0.8, 1, 1.25) * k
+    return {x: (g['prezzo'] * .8 * k, g['prezzo'] * k, g['prezzo'] * 1.25 * k) for x, g in E.items()}
+
+
+print('\n[B1] valore dei giocatori e della rosa')
+R = regole.carica_lega(None)
+E = {g['k']: g for g in rosa_sintetica()}
+base = [k for k in E if not k.startswith('X')]    # la rosa completa
+v0 = piano_asta.valore_rosa(base, E, R)
+migliore = max((k for k in E if k.startswith('XA')), key=lambda k: E[k]['mu'])
+peggiore_a = min((k for k in base if E[k]['ruolo'] == 'A'), key=lambda k: E[k]['mu'])
+v1 = piano_asta.valore_rosa([k for k in base if k != peggiore_a] + [migliore], E, R)
+t('sostituire il peggior attaccante con uno migliore alza il valore', v1 > v0)
+t('rosa senza portieri: valore 0', piano_asta.valore_rosa([k for k in base if E[k]['ruolo'] != 'P'], E, R) == 0.0)
+t('il valore scala con le giornate', abs(piano_asta.valore_rosa(base, E, R, 33) - 33 * v0) < 1e-6)
+Rlunga = regole.carica_lega(None, {'panchina': 25})
+Ep = {k: dict(g, p=0.7 if i % 3 else 1.0) for i, (k, g) in enumerate(E.items())}
+t('valutazione rapida = esatta quando la panchina e lunga',
+  abs(piano_asta.valore_rapido(base, Ep, Rlunga) - piano_asta.valore_rosa(base, Ep, Rlunga)) < 1e-9,
+  f'{piano_asta.valore_rapido(base, Ep, Rlunga):.4f} vs {piano_asta.valore_rosa(base, Ep, Rlunga):.4f}')
+t('la rapida non sottovaluta mai (la panchina corta toglie, non aggiunge)',
+  piano_asta.valore_rapido(base, Ep, R) >= piano_asta.valore_rosa(base, Ep, R) - 1e-9)
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)
