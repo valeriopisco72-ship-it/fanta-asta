@@ -205,6 +205,36 @@ except ValueError as e:
     ok = 'budget' in str(e) or 'reparto' in str(e)
 t('budget impossibile: errore che dice perche, non una rosa incompleta', ok)
 
+print('\n[B3] tetto come prezzo di indifferenza')
+B = 40                                    # budget che morde (la rosa migliore ne costa 73) ma basta per la stella
+stella = max((k for k in E4 if E4[k]['ruolo'] == 'A'), key=lambda k: E4[k]['mu'])
+t_stella = piano_asta.tetto(stella, E4, prezzi, Rm, B, slot, vinc)
+t('la stella unica ha tetto sopra il suo prezzo previsto', t_stella > prezzi[stella], f'{t_stella} vs {prezzi[stella]}')
+E5 = dict(E4)
+E5['clone'] = dict(E4[stella], k='clone', nome='clone', mu=E4[stella]['mu'] - 0.5)
+prezzi5 = dict(prezzi, clone=3.0)
+t_clone = piano_asta.tetto(stella, E5, prezzi5, Rm, B, slot, vinc)
+t('con un clone quasi uguale da 3 crediti, il tetto della stella crolla', t_clone < t_stella, f'{t_clone} vs {t_stella}')
+morto = next(k for k in E4 if E4[k]['ruolo'] == 'C')
+E6 = dict(E4)
+E6[morto] = dict(E4[morto], p=0.0)
+E6['tappa'] = G('tappa', 'C', 5.0, prezzo=1.0)          # c'e' sempre un tappabuco da 1 credito
+t('chi non gioca mai ha tetto 1 (se esiste un tappabuco da 1)',
+  piano_asta.tetto(morto, E6, dict(prezzi, tappa=1.0), Rm, B, slot, vinc) == 1.0)
+t('CONTROPROVA: senza tappabuco da 1, chi non gioca vale quanto fa risparmiare',
+  piano_asta.tetto(morto, {k: v for k, v in E6.items() if k != 'tappa'}, prezzi, Rm, B, slot, vinc) > 1.0)
+interni = [(k, piano_asta.tetto(k, E4, prezzi, Rm, B, slot, vinc)) for k in sorted(E4) if E4[k]['ruolo'] != 'A']
+# un titolare (il migliore del suo reparto) con tetto interno: per lui il fantavoto conta
+titolari_ = {max((k for k in E4 if E4[k]['ruolo'] == r), key=lambda k: E4[k]['mu']) for r in 'PDC'}
+k_int, t_int = next((k, x) for k, x in interni if k in titolari_ and 1 < x < t_stella)
+# il tetto e' a gradini: pagare di piu' costringe a rinunciare a un rinforzo intero altrove
+t_poco = piano_asta.tetto(k_int, {**E4, k_int: dict(E4[k_int], mu=E4[k_int]['mu'] + 0.5)}, prezzi, Rm, B, slot, vinc)
+t_tanto = piano_asta.tetto(k_int, {**E4, k_int: dict(E4[k_int], mu=E4[k_int]['mu'] + 2)}, prezzi, Rm, B, slot, vinc)
+t('CONTROPROVA: piu fantavoto atteso -> il tetto non scende mai, e sale oltre il gradino',
+  t_poco >= t_int and t_tanto > t_int, f'{k_int}: {t_int} -> {t_poco} -> {t_tanto}')
+t('il tetto e un intero fra 1 e il budget meno gli altri slot da 1',
+  all(1 <= x <= B - (sum(slot.values()) - 1) and x == int(x) for x in (t_stella, t_clone, t_poco, t_tanto)))
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)

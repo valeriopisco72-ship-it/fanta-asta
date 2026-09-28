@@ -122,7 +122,8 @@ def _costruisci(ordine, E, prezzi, slot, vincoli, fissati, budget):
     return rosa if all(v == 0 for v in manca.values()) else None
 
 
-def ottimizza(E, prezzi, R, budget, slot, vincoli, fissati=(), esclusi=(), seme=1, partenze=5):
+def ottimizza(E, prezzi, R, budget, slot, vincoli, fissati=(), esclusi=(), seme=1, partenze=5,
+              iniziali=()):
     """La rosa slot[r] per reparto con il valore rapido massimo, entro budget e vincoli.
 
     Ricerca locale da piu' partenze: scambi 1-per-1 nello stesso reparto e, quando
@@ -152,9 +153,15 @@ def ottimizza(E, prezzi, R, budget, slot, vincoli, fissati=(), esclusi=(), seme=
         o = list(tutti)
         rng.shuffle(o)
         ordini.append(o)
+    partenze_rose = []
+    for ini in iniziali:        # partenze calde: una rosa gia' buona, riparata se serve
+        ini = _ripara(ini, pool, E, prezzi, slot, vincoli, fissati, esclusi, budget)
+        if ini is not None:
+            partenze_rose.append(ini)
+    if not partenze_rose:
+        partenze_rose = [_costruisci(o, E, prezzi, slot, vincoli, fissati, budget) for o in ordini]
     migliore = None
-    for ordine in ordini:
-        rosa = _costruisci(ordine, E, prezzi, slot, vincoli, fissati, budget)
+    for rosa in partenze_rose:
         if rosa is None:
             continue
         rosa = sorted(_migliora(rosa, pool, E, prezzi, vincoli, budget, fissati, val, costo))
@@ -206,3 +213,78 @@ def _migliora(rosa, pool, E, prezzi, vincoli, budget, fissati, val, costo):
                 break
         if not fatto:
             return rosa
+
+
+def _ripara(rosa, pool, E, prezzi, slot, vincoli, fissati, esclusi, budget):
+    """Rende valida una rosa di partenza: via gli esclusi, dentro i fissati (al posto
+    del peggiore del reparto), poi risparmi finche' budget e vincoli tornano."""
+    fissi = set(fissati)
+    rosa = [k for k in rosa if k not in esclusi and k in E]
+    for f in fissati:
+        if f in rosa:
+            continue
+        r = E[f]['ruolo']
+        stesso = [k for k in rosa if E[k]['ruolo'] == r and k not in fissi]
+        if len([k for k in rosa if E[k]['ruolo'] == r]) >= slot[r]:
+            if not stesso:
+                return None
+            rosa.remove(min(stesso, key=lambda k: (E[k]['mu'] * E[k]['p'], k)))
+        rosa.append(f)
+    for r in regole.RUOLI:          # completa i reparti rimasti corti coi piu' economici
+        while sum(1 for k in rosa if E[k]['ruolo'] == r) < slot[r]:
+            liberi = [k for k in pool[r] if k not in rosa]
+            if not liberi:
+                return None
+            rosa.append(min(liberi, key=lambda k: (prezzi[k], k)))
+    for _ in range(len(rosa) * 3):
+        if sum(prezzi[k] for k in rosa) <= budget and rispetta(rosa, prezzi, E, vincoli):
+            return rosa
+        mosse = []
+        for out in rosa:
+            if out in fissi:
+                continue
+            for inn in pool[E[out]['ruolo']]:
+                if inn not in rosa and prezzi[inn] < prezzi[out]:
+                    perso = E[out]['mu'] * E[out]['p'] - E[inn]['mu'] * E[inn]['p']
+                    mosse.append((perso / (prezzi[out] - prezzi[inn]), out, inn))
+        if not mosse:
+            return None
+        _, out, inn = min(mosse)
+        rosa = [x for x in rosa if x != out] + [inn]
+    return None
+
+
+# ------------------------------------------------------------------ TETTO
+
+def tetto(k, E, prezzi, R, budget, slot, vincoli, fissati=(), esclusi=(), base=None, partenze=2):
+    """Il prezzo massimo che conviene pagare `k`: il piu' alto p (intero) per cui la
+    miglior rosa CON k pagato p vale strettamente piu' della miglior rosa SENZA k.
+    A parita' di valore non serve: tetto 1. `base` = una rosa buona da cui partire."""
+    esclusi = set(esclusi)
+    ini = [base] if base else []
+    try:
+        v0 = ottimizza(E, prezzi, R, budget, slot, vincoli, fissati, esclusi | {k},
+                       partenze=partenze, iniziali=ini)['valore']
+    except ValueError:
+        v0 = float('-inf')
+
+    def conviene(p):
+        pr = dict(prezzi)
+        pr[k] = float(p)
+        try:
+            v = ottimizza(E, pr, R, budget, slot, vincoli, list(fissati) + [k], esclusi,
+                          partenze=partenze, iniziali=ini)['valore']
+        except ValueError:
+            return False
+        return v > v0 + 1e-9
+
+    lo, hi = 1, int(budget - (sum(slot.values()) - 1))
+    if hi < 1 or not conviene(1):
+        return 1.0
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if conviene(mid):
+            lo = mid
+        else:
+            hi = mid - 1
+    return float(lo)
