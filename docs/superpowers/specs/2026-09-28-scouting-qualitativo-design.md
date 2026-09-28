@@ -51,6 +51,8 @@ Un file JSON per giocatore in `scouting/`, nome file libero:
 Regole di validità (una scheda o un KPI che non le rispetta viene **scartato e dichiarato**):
 
 - `nome` e `data` (ISO, `AAAA-MM-GG`) obbligatori;
+- `giornata`: l'ultima giornata di Serie A giocata alla data della scheda. È il confine della
+  verifica (§ 7), perché i voti si contano per giornata e non per data;
 - ogni KPI: `voto` intero fra −2 e +2, `prova` non vuota, `fonte` non vuota (link o
   "osservato: <partita, data>");
 - solo i KPI della tabella sotto: un campo sconosciuto invalida la scheda (niente KPI inventati);
