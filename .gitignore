@@ -19,3 +19,5 @@ voti/
 calendario.csv
 # lega finta generata da `python esempio.py --stagione`
 esempio_stagione/
+# prezzi d asta con FVM Fantacalcio.it (dato di terzi)
+prezzi_lega_*.csv
