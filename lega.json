@@ -4,24 +4,84 @@
  "formula": "scontri",
  "squadre": 10,
  "budget": 500,
- "slot": {"P": 3, "D": 8, "C": 8, "A": 6},
- "soglie": {"prima": 66, "passo": 6},
+ "slot": {
+  "P": 3,
+  "D": 8,
+  "C": 8,
+  "A": 6
+ },
+ "soglie": {
+  "prima": 66,
+  "passo": 6
+ },
  "modificatore": {
   "attivo": true,
   "min_difensori": 4,
   "portiere_incluso": true,
-  "fasce": [[6.0, 1], [6.25, 2], [6.5, 3], [6.75, 4.5], [7.0, 6]]
+  "fasce": [
+   [
+    6.0,
+    1
+   ],
+   [
+    6.25,
+    2
+   ],
+   [
+    6.5,
+    3
+   ],
+   [
+    6.75,
+    4.5
+   ],
+   [
+    7.0,
+    6
+   ]
+  ]
  },
- "rendimento": {"attivo": true, "fasce": [[8, 0.5], [9, 1], [10, 2], [11, 3]]},
- "capitano": {"attivo": true, "giocatore": "Gonzalez N.", "vice": "Rabiot"},
+ "rendimento": {
+  "attivo": true,
+  "fasce": [
+   [
+    8,
+    0.5
+   ],
+   [
+    9,
+    1
+   ],
+   [
+    10,
+    2
+   ],
+   [
+    11,
+    3
+   ]
+  ]
+ },
+ "capitano": {
+  "attivo": true,
+  "giocatore": "Gonzalez N.",
+  "vice": "Rabiot"
+ },
  "max_sostituzioni": 5,
  "panchina": 7,
- "calendario_lega": {},
+ "calendario_lega": {
+  "6": "FC Sucic",
+  "7": "MUCRE CM",
+  "8": "AQ Alessia quondam",
+  "9": "Neal tabbon mok",
+  "10": "Sparta Roggerdam",
+  "11": "ziopera"
+ },
  "_fonte": "Opzioni di Lega osservate nell'app: formato 03/09 e 05/09, modificatori 08/09, soglie gol 21/09/2026",
  "_da_verificare": [
   "bonus/malus individuali: non osservati, restano i default Classic di regole.py (gol +3, assist +1, porta inviolata 0)",
   "quanti giocatori in panchina (qui 7)",
-  "6 politico e riserva d'ufficio non sono modellati (riserva d'ufficio OFF, quindi conta solo il 6 politico)",
-  "calendario_lega: {giornata: avversario} degli scontri diretti, per P(vittoria)"
- ]
+  "6 politico e riserva d'ufficio non sono modellati (riserva d'ufficio OFF, quindi conta solo il 6 politico)"
+ ],
+ "_calendario_lega": "chiave = giornata di SERIE A (la 3a di lega e la 6a di Serie A). Coppa Morcone: la 1a coincide con la 6a, stessa formazione"
 }
