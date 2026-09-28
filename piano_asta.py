@@ -288,3 +288,58 @@ def tetto(k, E, prezzi, R, budget, slot, vincoli, fissati=(), esclusi=(), base=N
         else:
             hi = mid - 1
     return float(lo)
+
+
+# ------------------------------------------------------------------ PIANO
+
+MARGINE_REPARTO = 1.10
+FUORI_PIANO_MOSTRATI = 5
+
+
+def _etichetta(tetto_, forchetta):
+    if tetto_ is None:
+        return 'fuori piano'
+    if tetto_ > forchetta[2]:
+        return 'affare'
+    if tetto_ < forchetta[0]:
+        return 'lascia'
+    return 'da giocare'
+
+
+def piano(E, forchette, R, budget, slot, vincoli, ordine=('P', 'D', 'C', 'A'), candidati=40,
+          fissati=(), esclusi=(), partenze=5):
+    """Il piano d'asta: la rosa migliore ai prezzi previsti, e reparto per reparto
+    i bersagli e i candidati con forchetta, tetto, etichetta e due alternative."""
+    esclusi = set(esclusi)
+    prezzi = {k: f[1] for k, f in forchette.items() if k in E}
+    best = ottimizza(E, prezzi, R, budget, slot, vincoli, fissati, esclusi, partenze=partenze)
+    rosa = best['rosa']
+
+    def alternative(k):
+        r = E[k]['ruolo']
+        liberi = [x for x in prezzi if E[x]['ruolo'] == r and x not in rosa and x not in esclusi and x != k]
+        return sorted(liberi, key=lambda x: (-E[x]['mu'] * E[x]['p'] / max(prezzi[x], 1.0), x))[:2]
+
+    def riga(k, con_tetto):
+        tt = tetto(k, E, prezzi, R, budget, slot, vincoli, fissati, esclusi, base=rosa, partenze=1) \
+            if con_tetto else None
+        return {'k': k, 'nome': E[k]['nome'], 'forchetta': forchette[k], 'tetto': tt,
+                'etichetta': _etichetta(tt, forchette[k]), 'alternative': alternative(k),
+                'fonte': E[k].get('fonte', '')}
+
+    reparti = {}
+    for r in ordine:
+        nel = sorted((k for k in rosa if E[k]['ruolo'] == r), key=lambda k: -prezzi[k])
+        fuori = sorted((k for k in prezzi if E[k]['ruolo'] == r and k not in rosa and k not in esclusi),
+                       key=lambda k: (-E[k]['mu'] * E[k]['p'], k))
+        n_cand = max(0, candidati - len(nel))
+        bersagli = [riga(k, True) for k in nel]
+        altri = [riga(k, True) for k in fuori[:n_cand]] + \
+                [riga(k, False) for k in fuori[n_cand:n_cand + FUORI_PIANO_MOSTRATI]]
+        reparti[r] = {'budget': MARGINE_REPARTO * sum(forchette[k][1] for k in nel),
+                      'bersagli': bersagli, 'altri': altri}
+    struttura = {'top (50+)': sum(1 for k in rosa if prezzi[k] >= 50),
+                 'medi (6-49)': sum(1 for k in rosa if 6 <= prezzi[k] < 50),
+                 'da 1-5': sum(1 for k in rosa if prezzi[k] < 6)}
+    return {'rosa': rosa, 'costo': best['costo'], 'valore': best['valore'],
+            'valore_esatto': best['valore_esatto'], 'reparti': reparti, 'struttura': struttura}

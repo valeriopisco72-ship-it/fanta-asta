@@ -235,6 +235,20 @@ t('CONTROPROVA: piu fantavoto atteso -> il tetto non scende mai, e sale oltre il
 t('il tetto e un intero fra 1 e il budget meno gli altri slot da 1',
   all(1 <= x <= B - (sum(slot.values()) - 1) and x == int(x) for x in (t_stella, t_clone, t_poco, t_tanto)))
 
+print('\n[B4] il piano per reparto')
+P_ = piano_asta.piano(E4, forchette_finte(E4), Rm, 60, slot, vinc, candidati=3)
+righe = [r for rep in P_['reparti'].values() for r in rep['bersagli'] + rep['altri']]
+t('budget di reparto = somma mediane dei bersagli x 1.10',
+  all(abs(rep['budget'] - 1.10 * sum(r['forchetta'][1] for r in rep['bersagli'])) < 1e-6 for rep in P_['reparti'].values()))
+t('etichette secondo il tetto e la forchetta', all(
+  (r['etichetta'] == 'affare') == (r['tetto'] is not None and r['tetto'] > r['forchetta'][2]) for r in righe))
+t('fuori piano = senza tetto', all((r['tetto'] is None) == (r['etichetta'] == 'fuori piano') for r in righe))
+t('alternative dello stesso ruolo e fuori dalla rosa del piano',
+  all(E4[a]['ruolo'] == E4[r['k']]['ruolo'] and a not in P_['rosa'] for r in righe for a in r['alternative']))
+t('i reparti seguono l ordine di chiamata', list(P_['reparti']) == ['P', 'D', 'C', 'A'])
+t('i bersagli sono esattamente la rosa del piano',
+  sorted(r['k'] for rep in P_['reparti'].values() for r in rep['bersagli']) == sorted(P_['rosa']))
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)
