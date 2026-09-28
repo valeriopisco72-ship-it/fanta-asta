@@ -414,3 +414,47 @@ def ricalcola(stato, E, forchette, R, vincoli, slot=None, **kw):
     P = piano(E, f2, R, budget, slot, vincoli, fissati=miei, esclusi=altri, **kw)
     P['termometro'], P['fattore'] = temp, fatt
     return P
+
+
+# ------------------------------------------------------------------ RIGIOCO
+
+def rigioca(acquisti, E_agosto, forchette, R, vincoli, ordine=('P', 'D', 'C', 'A'), slot=None, partenze=2):
+    """L'asta del 05/09 rigiocata col piano, usando SOLO dati di agosto.
+
+    Reparto per reparto nell'ordine di chiamata, il bersaglio piu' caro del piano:
+    se nessuno lo ha comprato si prende a 1; se il tetto >= pagato + 1 si prende a
+    pagato + 1; altrimenti e' perso e il piano si rifa' senza di lui. Ottimista per
+    costruzione: gli altri avrebbero reagito ai rilanci, e qui non reagiscono."""
+    slot = slot or R['slot']
+    E = E_agosto
+    pagato = {a['k']: a['pagato'] for a in acquisti}
+    prezzi_base = {k: f[1] for k, f in forchette.items() if k in E}
+    miei, persi, log = {}, set(), []
+    for r in ordine:
+        while True:
+            prezzi = dict(prezzi_base, **miei)
+            try:
+                best = ottimizza(E, prezzi, R, R['budget'], slot, vincoli, list(miei), persi,
+                                 partenze=partenze)
+            except ValueError as e:
+                log.append(f'stop: {e}')
+                break
+            bersagli = sorted((k for k in best['rosa'] if E[k]['ruolo'] == r and k not in miei),
+                              key=lambda k: (-prezzi[k], k))
+            if not bersagli:
+                break
+            k = bersagli[0]
+            pg = pagato.get(k)
+            if pg is None:
+                miei[k] = 1.0
+                log.append(f'libero {E[k]["nome"]} 1')
+                continue
+            tt = tetto(k, E, prezzi, R, R['budget'], slot, vincoli, list(miei), persi,
+                       base=best['rosa'], partenze=1)
+            if tt >= pg + 1:
+                miei[k] = pg + 1.0
+                log.append(f'preso {E[k]["nome"]} {pg + 1:.0f}')
+            else:
+                persi.add(k)
+                log.append(f'perso {E[k]["nome"]} (pagato {pg:.0f}, tetto {tt:.0f})')
+    return {'rosa': sorted(miei), 'speso': sum(miei.values()), 'prezzi': miei, 'log': log}

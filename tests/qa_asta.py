@@ -273,6 +273,22 @@ f_scon = piano_asta.fattore_residuo(scon, forchette_finte(E4), E4, Rl, slot)
 t('somma zero: se gli altri strapagano, il resto costera MENO', f_caro < 1.0, f'{f_caro:.2f}')
 t('CONTROPROVA: se comprano a sconto, il resto costera DI PIU', f_scon > f_caro, f'{f_scon:.2f} vs {f_caro:.2f}')
 
+print('\n[B6] rigiocare l asta con i soli dati di agosto')
+acq = [dict(k=k, nome=E4[k]['nome'], ruolo=E4[k]['ruolo'], squadra='', fvm=10.0, quota=None,
+            pagato=prezzi[k] if i % 2 else None, fantasquadra='Altri' if i % 2 else None) for i, k in enumerate(E4)]
+rg = piano_asta.rigioca(acq, E4, forchette_finte(E4), Rm, vinc, slot=slot)
+t('rosa completa e budget mai negativo', len(rg['rosa']) == 6 and rg['speso'] <= Rm['budget'], str(rg))
+t('ogni decisione e nel log: preso, perso o libero',
+  rg['log'] and all(('preso' in x) or ('perso' in x) or ('libero' in x) for x in rg['log']), str(rg['log']))
+t('un giocatore mai comprato si prende a 1', all(x.endswith(' 1') for x in rg['log'] if x.startswith('libero')))
+caro = [dict(a, pagato=1000.0, fantasquadra='Altri') if a['k'] == stella else a for a in acq]
+rgc = piano_asta.rigioca(caro, E4, forchette_finte(E4), Rm, vinc, slot=slot)
+t('CONTROPROVA: chi e stato pagato piu del tetto si perde, e si passa oltre',
+  stella not in rgc['rosa'] and any(x.startswith('perso ' + E4[stella]['nome']) for x in rgc['log']), str(rgc['log']))
+import inspect  # noqa: E402
+t('il rigioco non puo leggere dati 2026/27: la firma non li prende',
+  not {'S', 'voti', 'tabella', 'records'} & set(inspect.signature(piano_asta.rigioca).parameters))
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)
