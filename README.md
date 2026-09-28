@@ -1,18 +1,161 @@
-# fanta-asta
+# fanta-asta · il socio di fantacalcio
 
-> **Stato al 17/08/2026** — 93/93 test verdi.
+> **Stato al 28/09/2026** — 155/155 test del socio, 68/68 dell'asta, 63/63 del piano d'asta
+> (`python tests/qa_socio.py`, `python tests/qa_fanta.py`, `python tests/qa_asta.py`).
 >
 > | | |
 > |---|---|
 > | ✅ **Prezzi d'asta** tarati sulla tua lega (VORP, somma zero, termometro live) | solido, testato |
+> | 🆕 **Piano d'asta e prezzo massimo vero** (`socio.py asta`) | testato; rigiocato sull'asta del 05/09 |
 > | ✅ **Titolarità osservata** dalle probabili formazioni (`formazioni.py`) | +22% di accordo col mercato |
 > | ✅ **Analisi calcistica** (xG/xA, contesto tattico, allenatori) | solido, con limiti dichiarati |
 > | ✅ **Pavimento di sostituzione** | **contato**, non più stimato: i titolari veri di Serie A |
-| ⚠️ **Riparto del budget fra reparti** | **delegato al mercato**: il modello non ha edge |
+> | 🆕 **Formazione della settimana** (modulo, XI, panchina, rischio vs avversario) | testato; +2,2 fantapunti/giornata **su dati finti** |
+> | 🆕 **Scambi e svincolati** misurati sulla TUA formazione | testato |
+> | 🆕 **Calendario e griglia portieri** | testato; forza squadre ancora grezza a inizio stagione |
+> | 🆕 **Backtest sui tuoi voti** (`socio.py verifica`) | è lo strumento per smentire tutto quello sopra |
+> | ⚠️ **Riparto del budget fra reparti** | **delegato al mercato**: il modello non ha edge |
 > | ❌ **Previsione dei breakout** | **misurato lift 0,25x: non funziona** |
 >
 > Le ultime due righe non sono lavori incompiuti: sono risultati negativi verificati.
 > Vedi `valida.py`, l'intestazione di `talenti.py` e la sezione sulla calibrazione.
+
+## Il socio di stagione — `socio.py` (nuovo)
+
+L'asta è una sera. Il campionato sono **38 formazioni**, un paio di finestre di mercato e
+una decina di scambi proposti: è lì che si vince, ed era la parte che il tool non toccava.
+`socio.py` la copre con un metro solo, lo stesso VORP dell'asta portato in stagione:
+**un giocatore vale quello che cambia nella TUA formazione**, non in astratto.
+
+```bash
+python esempio.py --stagione                               # lega FINTA completa per provarlo
+python socio.py --lega esempio_stagione/lega.json settimana
+```
+
+| comando | cosa risponde |
+|---|---|
+| `socio.py settimana` | il briefing del giovedì: allarmi (squalificati, diffidati, a rischio), formazione, portieri, svincolati |
+| `socio.py formazione [--avversario X]` | modulo + XI + **ordine della panchina**; negli scontri diretti P(vittoria/pareggio/sconfitta) |
+| `socio.py rosa` | i tuoi giocatori: fantavoto atteso, probabilità di giocare, da dove viene la stima |
+| `socio.py scambio --dai "A" --ricevi "B,C"` | effetto sulla tua formazione nelle prossime giornate, **accanto** alla somma grezza |
+| `socio.py svincolati [--ruolo C]` | chi prendere e **chi tagliare** |
+| `socio.py portieri` | gol subiti attesi dei tuoi portieri e la coppia migliore, anche con i liberi |
+| `socio.py verifica` | backtest: le stime ci azzeccano sui tuoi voti veri? |
+
+### Le tre idee
+
+1. **Negli scontri diretti non si massimizza la media.** Da favorito la varianza è il
+   nemico; da sfavorito è l'unica speranza ([pub] è un risultato classico del fantasy
+   americano: [Footballguys](https://www.footballguys.com/article/DFS_expectationvariance),
+   [Fantasy Footballers](https://www.thefantasyfootballers.com/articles/variance-in-fantasy-football-embrace-the-chaos/)).
+   `schiera.py` simula la giornata (Monte Carlo, numeri casuali comuni fra le formazioni
+   candidate) con **le fasce gol della tua lega** e sceglie la formazione che massimizza i
+   punti in classifica attesi. Il test lo verifica in entrambe le direzioni, e su 10 semi
+   casuali su 10.
+2. **Uno scambio si misura sulla formazione.** "Do un 6,5 e prendo un 7" è sbagliato quando
+   il 7 finisce in panchina o quando il 6,5 era il tuo unico portiere affidabile. Il comando
+   stampa i due numeri uno accanto all'altro: la differenza è il motivo per cui esiste.
+3. **La panchina ha un valore, e si calcola.** Con la probabilità di giocare per ogni
+   giocatore, il valore di un reparto è esatto (Poisson-binomiale: "i primi k che scendono in
+   campo, nell'ordine") e la simulazione fa entrare i cambi fino al tetto della lega.
+
+### I file
+
+Tutti opzionali tranne la rosa; ogni file mancante viene **detto in testa all'output**.
+
+| file | cosa | dove |
+|---|---|---|
+| `lega.json` | regole della lega (bonus, fasce gol, modificatore, moduli, cambi), la tua squadra, i percorsi | lo scrivi tu (v. `regole.py`, esempio in `esempio_stagione/`) |
+| `rose.csv` | `FantaSquadra;Nome` per tutte le squadre della lega | lo scrivi tu (o export della piattaforma) |
+| `voti/*.xlsx\|csv` | un file per giornata, formato voti di Fantacalcio.it | [fantacalcio.it/voti-fantacalcio-serie-a](https://www.fantacalcio.it/voti-fantacalcio-serie-a) |
+| `calendario.csv` | `Giornata;Casa;Trasferta;GolCasa;GolTrasferta` | calendario Serie A |
+| `titolari.csv` | probabili formazioni | `python formazioni.py` |
+| `listone_completo.csv` | quello dell'asta: prior dalla stagione scorsa | `unisci.py` |
+
+Esempio minimo di `lega.json`:
+
+```json
+{
+ "nome": "Fantalega del bar",
+ "mia": "FC Tuoi",
+ "formula": "scontri",
+ "bonus": {"porta_inviolata": 1, "gol": {"D": 4.5}},
+ "soglie": [66, 72, 77, 81, 85, 89],
+ "max_sostituzioni": 5,
+ "panchina": 12,
+ "rendimento": {"attivo": true},
+ "capitano": {"attivo": true, "giocatore": "Gonzalez N.", "vice": "Rabiot"},
+ "calendario_lega": {"6": "FC Avversari", "7": "FC Altri"}
+}
+```
+
+Il `lega.json` nella radice del repo è quello vero della lega *porcodidiosanto*: modificatore
+difesa a 5 fasce (6 / 6,25 / 6,5 / 6,75 / 7 → +1 / +2 / +3 / +4,5 / +6), rendimento, capitano
+fisso sul voto puro, 5 cambi a pari ruolo, fasce gol 66 + 6. Quello che non è stato osservato
+(bonus individuali, lunghezza della panchina) è elencato nel file sotto `_da_verificare`.
+
+### Cosa è misurato e cosa no
+
+- **Misurato su dati finti** (`esempio.py --stagione`, 6 stagioni × 10 rose × 18 giornate):
+  la formazione del socio fa **+2,2 ± 0,24 fantapunti a giornata** rispetto a quella
+  "ingenua" (3-4-3 coi migliori per fantamedia finora). Sull'errore per giocatore batte
+  nettamente la fantamedia finora (0,98 contro 1,10 di errore medio) e **pareggia col listone**
+  — che nei dati finti è quasi un oracolo, nella realtà no.
+  **Non è una promessa sui dati veri**: il generatore l'ho scritto io, e un modello che batte
+  i dati che ha generato il suo autore dimostra solo che non è rotto.
+- **Da misurare sui tuoi dati:** `python socio.py verifica` rifà le stime giornata per giornata
+  usando solo il passato (un test impone che non sbirci il futuro) e le confronta con i voti
+  veri. Se il socio non batte le baseline, lo stampa.
+- **Stime dichiarate, non misurate:** probabilità di giocare di chi è / non è nelle probabili
+  (0,90 / 0,15), fattore campo 1,12, peso del prior (6 partite), taglio delle code del fantavoto
+  (2 deviazioni). Sono in cima a `proiezioni.py` e `calendario.py`, con scritto sopra che sono
+  stime. La prima da misurare è la probabilità delle probabili: si fa confrontando
+  `titolari.csv` del giovedì con i voti della domenica.
+- **Non modellato:** infortuni oltre alle probabili, rigoristi, correlazione fra compagni di
+  squadra (se la difesa prende 4 gol soffrono tutti), il "cambio modulo" di alcune leghe.
+
+Il piano di lavoro con le scelte e i perché è in [`docs/piano-socio.md`](docs/piano-socio.md).
+
+## Il piano d'asta — `socio.py asta` (nuovo)
+
+Tre domande, tre comandi:
+
+```
+python socio.py asta --mercato            # quanto paga la TUA lega (modello per ruolo x fascia FVM)
+python socio.py asta                      # il piano: la rosa da fare e il prezzo massimo di ognuno
+python socio.py asta --live asta.json     # a meta' asta: il piano rifatto con quello che e' successo
+python socio.py asta --rigioca            # l'asta del 05/09 rigiocata col piano, per vedere se serve
+```
+
+Per ogni giocatore due numeri:
+
+- **forchetta** (25°-50°-75° percentile): quanto lo pagherà la tua lega. Viene dai prezzi veri
+  del 05/09, cella per cella, col modello che sbaglia meno *su giocatori che non ha visto*
+  (leave-one-out). Sotto FVM 50 l'errore è ~5 crediti; sui top ±20.
+- **tetto**: il prezzo oltre il quale la rosa migliore la fai **senza** di lui. Non è "quanto
+  vale": è il prezzo di indifferenza fra la miglior rosa con lui e la miglior rosa senza, stesso
+  budget, stessi vincoli. Tiene conto delle alternative: se c'è un clone da 3 crediti, il tetto
+  crolla.
+
+Etichette: **affare** (tetto sopra la forchetta: rilancia), **da giocare** (tetto dentro),
+**lascia** (la lega lo pagherà più di quanto ti serve), **fuori piano**. Accanto, le 2
+alternative più vicine per valore: se lo perdi, vai su di loro.
+
+I vincoli dello studio d'asta stanno in `lega.json` → `asta`: crediti totali sui portieri
+(`portieri_max`, 10) e quanti giocatori al massimo nella fascia peggiore (`fascia_media`
+25-49, `fascia_media_max` 2). Lo stato live è un json:
+`{"mio_budget": 380, "venduti": [{"nome": "Thuram", "prezzo": 120, "mio": true}, ...]}`.
+
+**Tempi**: il piano completo sul listone vero (592 giocatori) richiede ~4 minuti, perché
+ogni tetto è una ricerca per bisezione di rose ottime. In `--live` i tetti si calcolano solo
+per il reparto in chiamata (gli altri sono etichettati `dopo`): ~20 secondi.
+
+Il verdetto del rigioco (serve o no) è in
+[`docs/studio-asta-2026-27.md`](docs/studio-asta-2026-27.md#rigioco).
+
+---
+
+## L'asta — `fanta.py`
 
 Prezzi limite per l'asta del fantacalcio, tarati sulla **tua** lega.
 Classic, 10 squadre, 500 crediti (configurabile da riga di comando).
@@ -124,9 +267,19 @@ valore è uscito**:
 ## File
 
 ```
-fanta.py              il tool (CLI)
-esempio.py            genera un listone finto per provarlo
-tests/qa_fanta.py     35 test, con controprove
+fanta.py              l'asta (CLI)
+socio.py              la stagione: formazione, scambi, svincolati, portieri, verifica
+regole.py             il regolamento della lega (lega.json)
+voti.py               archivio dei voti di giornata
+proiezioni.py         fantavoto atteso, dispersione, probabilita di giocare
+calendario.py         forza squadre, difficolta, griglia portieri
+schiera.py            formazione ottima e simulazione della giornata
+mercato.py            scambi e svincolati sul valore della formazione
+verifica.py           backtest walk-forward sui voti veri
+nomi.py               chiavi comuni per giocatori e squadre
+esempio.py            listone finto (--stagione: lega finta completa)
+tests/qa_fanta.py     test dell'asta, con controprove
+tests/qa_socio.py     test del socio, con controprove
 ```
 
 ## 🔴 Il difetto n.1 del tool, oggi: il pavimento di sostituzione
@@ -432,6 +585,8 @@ genera un listone finto per provarlo. I file veri li scarichi tu, e restano tuoi
 | statistiche stagione precedente | [fantacalcio.it/statistiche-serie-a](https://www.fantacalcio.it/statistiche-serie-a) | `unisci.py` |
 | probabili formazioni | [fantacalcio.it/probabili-formazioni-serie-a](https://www.fantacalcio.it/probabili-formazioni-serie-a) | `formazioni.py` |
 | xG, xA, npxG, xGChain | [understat.com](https://understat.com) | `understat.py`, `analisi.py`, `squadre.py` |
+| voti di giornata | [fantacalcio.it/voti-fantacalcio-serie-a](https://www.fantacalcio.it/voti-fantacalcio-serie-a) | `voti.py`, `socio.py` |
+| calendario e risultati Serie A | qualunque fonte, in `calendario.csv` | `calendario.py`, `socio.py` |
 
 I marchi *Fantacalcio®* e i dati citati appartengono ai rispettivi titolari. Questo è un
 progetto amatoriale, gratuito, senza scopo di lucro e non affiliato ad alcuna delle fonti.
