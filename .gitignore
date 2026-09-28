@@ -15,3 +15,7 @@ squadre_*.csv
 estero_*.csv
 titolari.csv
 aggiornamenti.log
+voti/
+calendario.csv
+# lega finta generata da `python esempio.py --stagione`
+esempio_stagione/
