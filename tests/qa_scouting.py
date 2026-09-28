@@ -177,6 +177,66 @@ t('CONTROPROVA: senza cartella scouting niente cambia',
   not any('scouting' in g.get('fonte', '') for g in proiezioni_giocatori.values()))
 
 
+# ================================================== C3. imbuto e gioielli
+print('\n[C3] chi schedare fra i liberi, e il prezzo massimo dei gioielli')
+lst = [{'nome': 'Punta N.', 'ruolo': 'A', 'squadra': 'MON', 'quota': 3, 'fvm': 10},
+       {'nome': 'Terzino N.', 'ruolo': 'D', 'squadra': 'MON', 'quota': 3, 'fvm': 30},
+       {'nome': 'Punta V.', 'ruolo': 'A', 'squadra': 'INT', 'quota': 3, 'fvm': 10},
+       {'nome': 'Mediano N.', 'ruolo': 'C', 'squadra': 'MON', 'quota': 9, 'fvm': 10},
+       {'nome': 'Preso P.', 'ruolo': 'A', 'squadra': 'MON', 'quota': 3, 'fvm': 50}]
+cand = scouting.candidati(lst, occupati={nomi.giocatore('Preso P.')}, neopromosse={'Monza'})
+t('i gia in rosa non sono candidati', 'Preso P.' not in [c['nome'] for c in cand])
+t('attaccante di neopromossa davanti a tutti', cand[0]['nome'] == 'Punta N.' and cand[0]['segnali'], cand[:1])
+t('ordine: A neopromossa > A > C neopromossa > resto',
+  [c['nome'] for c in cand] == ['Punta N.', 'Punta V.', 'Mediano N.', 'Terzino N.'], [c['nome'] for c in cand])
+t('n limita la lista', len(scouting.candidati(lst, set(), {'Monza'}, n=2)) == 2)
+due = [{'nome': 'Scarso S.', 'ruolo': 'A', 'squadra': 'INT', 'quota': 1, 'fvm': 1},
+       {'nome': 'Buono B.', 'ruolo': 'A', 'squadra': 'INT', 'quota': 9, 'fvm': 20}]
+t('la quotazione bassa e informazione, non scavalca il FVM',
+  [c['nome'] for c in scouting.candidati(due, set(), set())] == ['Buono B.', 'Scarso S.'])
+cg = scouting.candidati(lst, {nomi.giocatore('Preso P.')}, {'Monza'}, guadagni={nomi.giocatore('Terzino N.'): 12.0})
+t('i numeri contano: il difensore che migliora la tua formazione sale fra i candidati, e lo dice',
+  [c['nome'] for c in cg].index('Terzino N.') < [c['nome'] for c in cg].index('Mediano N.')
+  and any('tua formazione' in x for x in cg[[c['nome'] for c in cg].index('Terzino N.')]['segnali']),
+  [(c['nome'], c['segnali']) for c in cg])
+gi = scouting.gioielli([{'k': 'a', 'ruolo': 'A'}, {'k': 'b', 'ruolo': 'C'}, {'k': 'p', 'ruolo': 'P'}],
+                       {'a': 30.0, 'b': 10.0, 'p': 20.0}, budget=100, slot=3)
+# ordine per guadagno: a (1+97*30/60 = 49.5 -> 25), p (33.3 -> 5, portiere), b (1+97*10/60 = 17.2)
+t('ordinati per guadagno', [g['k'] for g in gi] == ['a', 'p', 'b'], [g['k'] for g in gi])
+t('tetto 25 per tutti, 5 per i portieri', [g['prezzo_max'] for g in gi] == [25, 5, 1 + 97 * 10 / 60],
+  [g['prezzo_max'] for g in gi])
+t('crediti tagliati dai tetti dichiarati', sum(g['prezzo_max'] for g in gi) < 100
+  and abs(sum(g['tagliato'] for g in gi) - (49.5 - 25 + (1 + 97 * 20 / 60) - 5)) < 1e-9)
+gi2 = scouting.gioielli([{'k': x, 'ruolo': 'C'} for x in 'abcd'], {'a': 4.0, 'b': 3.0, 'c': 2.0, 'd': 1.0},
+                        budget=20, slot=2)
+t('solo i primi S, a somma zero sul budget', [g['k'] for g in gi2] == ['a', 'b'] and
+  abs(sum(g['prezzo_max'] for g in gi2) - 20) < 1e-9, gi2)
+t('CONTROPROVA: guadagno nullo o negativo non e un gioiello',
+  [g['k'] for g in scouting.gioielli([{'k': 'z', 'ruolo': 'A'}], {'z': 0.0}, 10, 1)] == [])
+
+import subprocess  # noqa: E402
+
+
+def lancia(*arg):
+    r = subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                                     'socio.py')] + list(arg), capture_output=True, text=True, cwd=tmp)
+    return r.returncode, r.stdout + r.stderr
+
+
+lega_st = os.path.join(cart, 'lega.json')
+rc, out = lancia('--lega', lega_st, 'scouting', 'candidati', '--n', '10')
+t('socio scouting candidati: lista con segnali', rc == 0 and 'segnali' in out and out.count('\n  ') >= 10,
+  out[-500:])
+rc, out = lancia('--lega', lega_st, 'scouting', 'gioielli', '--budget', '60', '--slot', '3')
+t('socio scouting gioielli: prezzo massimo e crediti tagliati dichiarati',
+  rc == 0 and 'prezzo max' in out and 'tagliat' in out, out[-800:])
+with open(os.path.join(tmp, 'lega_vuota.json'), 'w') as f:
+    json.dump({'mia': 'X', 'file': {'listone': 'manca.csv'}}, f)
+rc, out = lancia('--lega', os.path.join(tmp, 'lega_vuota.json'), 'scouting', 'candidati')
+t('senza listone: messaggio, codice di errore, niente traceback',
+  rc != 0 and 'listone' in out and 'Traceback' not in out, out[-300:])
+
+
 # ================================================== esito
 print('\n' + '=' * 74)
 gravi = sum(1 for _, _, g in KO if g)

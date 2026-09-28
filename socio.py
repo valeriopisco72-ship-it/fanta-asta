@@ -508,6 +508,72 @@ def cmd_asta(C, A):
     print()
 
 
+def _guadagni_liberi(C, occupati, top):
+    """Liberi che migliorano la tua formazione, con il guadagno da qui alla 38a.
+    I liberi si stimano dal listone (+ scouting); i rosati restano sulle stime di stagione."""
+    oggi = datetime.date.today().isoformat()
+    E_lis = scouting.applica(proiezioni.stima(S=None, listone=C.listone, titolari=None, R=C.R, prossima=False),
+                             C.schede, oggi)
+    E_mix = dict(E_lis, **proiezioni.giocatori(C.E_base))
+    rimaste = max(1, 38 - C.g + 1)
+    sv = mercato.svincolati(C.mia, occupati, [E_mix], C.R, top=top)
+    return sv, {x['k']: x['guadagno'] * rimaste for x in sv}, rimaste
+
+
+def cmd_scouting(C, A):
+    if not C.listone:
+        raise SystemExit(f'\n[!] listone assente ({C.file["listone"]}): serve per sapere chi e libero '
+                         '(in lega.json -> file.listone)\n')
+    occupati = {k for v in C.rose.values() for k in v}
+    neo = C.R.get('neopromosse') or []
+    if A.azione == 'candidati':
+        intestazione(C, 'SCOUTING: chi schedare fra i liberi')
+        if not neo:
+            print('  !! "neopromosse" non e in lega.json: manca il segnale piu forte')
+        guadagni = _guadagni_liberi(C, occupati, 15)[1] if C.mia else {}
+        if not C.mia:
+            print('  !! senza la tua rosa niente segnale "i numeri": solo segnali strutturali')
+        cand = scouting.candidati(C.listone, occupati, neo, n=A.n, guadagni=guadagni)
+        print(f'\n  {len(cand)} candidati (liberi = listone meno le {len(C.rose)} rose). Schedali con la skill '
+              'scouting,\n  una scheda JSON per giocatore in scouting/.\n')
+        print(f'  {"":<2}{"giocatore":<22}{"sq":<5}{"quota":>6}{"FVM":>5}  {"scheda":<11}segnali')
+        for c in cand:
+            sch = C.schede.get(c['k'])
+            stato = f'{sch["data"]}' if sch else '-'
+            q = c.get('quota')
+            print(f'  {c["ruolo"]:<2}{c["nome"][:21]:<22}{str(c.get("squadra", ""))[:4]:<5}'
+                  f'{(f"{q:.0f}" if q is not None else "-"):>6}{(c.get("fvm") or 0):>5.0f}  {stato:<11}'
+                  + ('; '.join(c['segnali']) or '-'))
+        print()
+        return
+    _serve_rosa(C)
+    intestazione(C, 'SCOUTING: gioielli e prezzo massimo')
+    sv, guadagni, rimaste = _guadagni_liberi(C, occupati, max(3 * A.slot, 15))
+    gi = scouting.gioielli(sv, guadagni, A.budget, A.slot)
+    if C.tabella:
+        print('  !! i liberi sono stimati dal listone (stagione scorsa) + scouting; i tuoi dalla stagione in corso')
+    if not gi:
+        print('\n  nessun libero migliorerebbe la tua formazione. Tieniti i crediti.\n')
+        return
+    print(f'\n  guadagno = fantapunti in piu della tua formazione da qui alla 38a ({rimaste} giornate)')
+    print(f'  prezzo max a somma zero su {A.budget:.0f} crediti e {A.slot} slot, poi tetti '
+          f'{scouting.TETTO_GIOIELLO} (tutti) e {scouting.TETTO_PORTIERE} (portieri)\n')
+    print(f'  {"":<2}{"giocatore":<22}{"sq":<5}{"guadagno":>9}  {"scheda":<24}{"prezzo max":>10}')
+    for g in gi:
+        sch = C.schede.get(g['k'])
+        if sch:
+            i, c = scouting.indice(sch)
+            stato = f'indice {i:+.2f} conf {c:.0%}'
+        else:
+            stato = 'NON schedato'
+        print(f'  {g["ruolo"]:<2}{g["nome"][:21]:<22}{str(g.get("squadra", ""))[:4]:<5}{g["guadagno"]:>+9.1f}  '
+              f'{stato:<24}{g["prezzo_max"]:>10.0f}')
+    tagliati = sum(g['tagliato'] for g in gi)
+    print(f'\n  crediti tagliati dai tetti, da NON spendere: {tagliati:.0f}'
+          if tagliati else '\n  nessun credito tagliato dai tetti')
+    print()
+
+
 def cmd_verifica(C, A):
     import verifica
     intestazione(C, 'VERIFICA')
@@ -522,7 +588,7 @@ def main(argv=None):
     ap.add_argument('--giornata', type=int, default=None)
     sub = ap.add_subparsers(dest='cmd')
     for nome in ('settimana', 'formazione', 'rosa', 'scambio', 'svincolati', 'portieri', 'verifica',
-                 'proposte', 'lega', 'asta'):
+                 'proposte', 'lega', 'asta', 'scouting'):
         p = sub.add_parser(nome)
         p.add_argument('--avversario', default=None)
         p.add_argument('--sim', type=int, default=3000, help='simulazioni Monte Carlo')
@@ -539,6 +605,11 @@ def main(argv=None):
             p.add_argument('--candidati', type=int, default=12, help='giocatori con tetto per reparto')
             p.add_argument('--live', default=None, help='stato dell asta in corso (json)')
             p.add_argument('--rigioca', action='store_true', help='rigioca l asta del 05/09 col piano')
+        if nome == 'scouting':
+            p.add_argument('azione', choices=['candidati', 'gioielli'])
+            p.add_argument('--n', type=int, default=30, help='quanti candidati')
+            p.add_argument('--budget', type=float, default=50, help='crediti per il mercato di gennaio')
+            p.add_argument('--slot', type=int, default=3, help='slot da riempire a gennaio')
     A = ap.parse_args(argv)
     if not A.cmd:
         ap.print_help()
@@ -551,7 +622,8 @@ def main(argv=None):
      'formazione': lambda C, A: (intestazione(C, 'FORMAZIONE'), cmd_formazione(C, A), print()),
      'rosa': cmd_rosa, 'scambio': cmd_scambio,
      'svincolati': cmd_svincolati, 'portieri': cmd_portieri,
-     'verifica': cmd_verifica, 'proposte': cmd_proposte, 'lega': cmd_lega, 'asta': cmd_asta}[A.cmd](C, A)
+     'verifica': cmd_verifica, 'proposte': cmd_proposte, 'lega': cmd_lega, 'asta': cmd_asta,
+     'scouting': cmd_scouting}[A.cmd](C, A)
     return 0
 
 

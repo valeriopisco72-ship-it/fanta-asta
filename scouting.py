@@ -214,3 +214,50 @@ def segnali(g, neopromosse):
     if out and q is not None and q <= 5:
         out.append(f'quotazione bassa ({q:g})')
     return out
+
+
+# ------------------------------------------------------------------ IMBUTO E GIOIELLI
+
+# la quotazione bassa e' informazione (a gennaio i liberi costano tutti poco): non ordina
+PESO_SEGNALE = {'attaccante di neopromossa': 3.0, 'i numeri': 2.5, 'attaccante': 2.0,
+                'centrocampista di neopromossa': 1.5, 'quotazione bassa': 0.0}
+TETTO_GIOIELLO, TETTO_PORTIERE = 25, 5      # dallo studio d'asta: la fascia 25-49 e' denaro perso
+
+
+def _punteggio(segn):
+    return sum(PESO_SEGNALE.get(s.split(' (')[0].split(':')[0], 0.0) for s in segn)
+
+
+def candidati(listone, occupati, neopromosse, n=30, guadagni=None):
+    """Chi schedare fra i liberi: ordinati per segnali, poi per FVM (a parita' di
+    segnali, chi il mercato stima di piu'). Ognuno con i suoi segnali.
+
+    `guadagni` (facoltativo, {chiave: fantapunti}): quanto ognuno migliorerebbe la
+    tua formazione secondo i numeri; chi ne ha entra con il segnale 'i numeri'."""
+    guadagni = guadagni or {}
+    out = []
+    for g in listone:
+        k = nomi.giocatore(g['nome'])
+        if k in occupati:
+            continue
+        seg = segnali(g, neopromosse)
+        if guadagni.get(k, 0) > 0:
+            seg = [f'i numeri: +{guadagni[k]:.1f} alla tua formazione'] + seg
+        out.append(dict(g, k=k, segnali=seg, punteggio=_punteggio(seg)))
+    out.sort(key=lambda c: (-c['punteggio'], -(c.get('fvm') or 0), c['nome']))
+    return out[:n]
+
+
+def gioielli(liberi_stimati, guadagni, budget, slot):
+    """I primi `slot` liberi per guadagno, con il prezzo massimo a somma zero:
+    1 + (budget - slot) * guadagno / somma dei guadagni, poi i tetti (25, portieri 5).
+    'tagliato' = crediti tolti dal tetto, che restano non spesi."""
+    scelti = sorted((g for g in liberi_stimati if guadagni.get(g['k'], 0) > 0),
+                    key=lambda g: (-guadagni[g['k']], g['k']))[:slot]
+    tot = sum(guadagni[g['k']] for g in scelti)
+    out = []
+    for g in scelti:
+        pieno = 1 + (budget - slot) * guadagni[g['k']] / tot
+        tetto = TETTO_PORTIERE if g.get('ruolo') == 'P' else TETTO_GIOIELLO
+        out.append(dict(g, guadagno=guadagni[g['k']], prezzo_max=min(pieno, tetto), tagliato=max(0.0, pieno - tetto)))
+    return out
