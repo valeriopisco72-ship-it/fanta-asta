@@ -137,7 +137,9 @@ le altre anche a 19 giornate, diventa una regola del tool d'asta (`fanta.py`), n
 il piano, costruito **solo con dati di agosto** (listone, prezzi previsti dal modello della
 lega), va sul suo bersaglio più caro. Se nessuno lo aveva comprato lo prende a 1; se il suo
 tetto arriva a pagato + 1 lo prende a pagato + 1; altrimenti lo perde e rifà il piano.
-**È ottimista per costruzione**: quando rilanci, gli altri non reagiscono.
+**È ottimista per costruzione**, due volte: quando rilanci, gli altri non reagiscono; e le
+forchette dei prezzi con cui sceglie i bersagli sono tarate sui prezzi di questa stessa asta,
+che ad agosto non si conoscevano (sono i dati veri della lega, ma a posteriori).
 
 La rosa del rigioco: Di Gregorio, Milinkovic-Savic V., Provedel · Dimarco (71), Ostigard,
 Pavlovic, Kabasele, Gallo, Terracciano F., Drobnic, Puczka · Paz N. (94), McTominay (51),

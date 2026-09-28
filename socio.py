@@ -132,12 +132,19 @@ class Contesto:
                                            R=self.R, prossima=False)
 
         # scouting: schede qualitative in scouting/, correzione limitata e dichiarata
-        self.schede, errori = scouting.carica(self.file['scouting'])
+        schede, errori = scouting.carica(self.file['scouting'])
         self.avvisi += [f'scouting: {e}' for e in errori]
+        # ogni scheda si aggancia a un giocatore delle stime O del listone (i liberi, con la
+        # tabella dell'app, sono solo nel listone: servono a candidati e gioielli)
+        noti = set(proiezioni.giocatori(self.E_base)) | {nomi.giocatore(g['nome']) for g in self.listone}
+        self.schede = scouting.risolvi(schede, noti, self.avvisi)
         if self.schede:
             oggi = datetime.date.today().isoformat()
-            self.E_ora = scouting.applica(self.E_ora, self.schede, oggi, self.avvisi)
-            self.E_base = scouting.applica(self.E_base, self.schede, oggi, [])
+            self.avvisi += [f'scouting: scheda di {s["nome"]} scaduta ({s["data"]}): non applicata, rifalla'
+                            for s in self.schede.values() if scouting.scaduta(s, oggi)]
+            nelle_stime = {k: s for k, s in self.schede.items() if k in self.E_base}
+            self.E_ora = scouting.applica(self.E_ora, nelle_stime, oggi, [])
+            self.E_base = scouting.applica(self.E_base, nelle_stime, oggi, [])
 
         # rose della lega
         self.rose = mercato.carica_rose(self.file['rose'])
@@ -487,7 +494,7 @@ def cmd_asta(C, A):
             ('ASTA: piano live' if A.live else 'ASTA: piano d asta e prezzo massimo')
         intestazione(C, titolo)
         rc = piano_asta.esegui(C.R, C.file['listone'], C.file['prezzi'],
-                               'rigioca' if A.rigioca else 'piano', A.candidati, A.live)
+                               'rigioca' if A.rigioca else 'piano', A.candidati, A.live, schede=C.schede)
         if rc:
             raise SystemExit(rc)
         print()

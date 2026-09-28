@@ -147,8 +147,8 @@ I vincoli dello studio d'asta stanno in `lega.json` → `asta`: crediti totali s
 `{"mio_budget": 380, "venduti": [{"nome": "Thuram", "prezzo": 120, "mio": true}, ...]}`.
 
 **Tempi**: il piano completo sul listone vero (592 giocatori) richiede ~4 minuti, perché
-ogni tetto è una ricerca per bisezione di rose ottime. Durante l'asta usa
-`--candidati 0` (tetto solo per i giocatori del piano).
+ogni tetto è una ricerca per bisezione di rose ottime. In `--live` i tetti si calcolano solo
+per il reparto in chiamata (gli altri sono etichettati `dopo`): ~20 secondi.
 
 Il verdetto del rigioco (serve o no) è in
 [`docs/studio-asta-2026-27.md`](docs/studio-asta-2026-27.md#rigioco).

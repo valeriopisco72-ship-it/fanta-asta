@@ -310,9 +310,11 @@ def _etichetta(tetto_, forchetta):
 
 
 def piano(E, forchette, R, budget, slot, vincoli, ordine=('P', 'D', 'C', 'A'), candidati=40,
-          fissati=(), esclusi=(), partenze=5):
+          fissati=(), esclusi=(), partenze=5, reparti_tetto=None):
     """Il piano d'asta: la rosa migliore ai prezzi previsti, e reparto per reparto
-    i bersagli e i candidati con forchetta, tetto, etichetta e due alternative."""
+    i bersagli e i candidati con forchetta, tetto, etichetta e due alternative.
+    `reparti_tetto`: i reparti per cui calcolare i tetti (None = tutti); negli altri
+    l'etichetta e' 'dopo' (in live il tetto serve solo per il reparto in chiamata)."""
     esclusi = set(esclusi)
     prezzi = {k: f[1] for k, f in forchette.items() if k in E}
     best = ottimizza(E, prezzi, R, budget, slot, vincoli, fissati, esclusi, partenze=partenze)
@@ -326,10 +328,12 @@ def piano(E, forchette, R, budget, slot, vincoli, ordine=('P', 'D', 'C', 'A'), c
 
     def riga(k, con_tetto):
         tuo = k in fissati
+        dopo = reparti_tetto is not None and E[k]['ruolo'] not in reparti_tetto
         tt = tetto(k, E, prezzi, R, budget, slot, vincoli, fissati, esclusi, base=rosa, partenze=1) \
-            if con_tetto and not tuo else None
+            if con_tetto and not tuo and not dopo else None
+        etich = 'tuo' if tuo else ('dopo' if dopo and con_tetto else _etichetta(tt, forchette[k]))
         return {'k': k, 'nome': E[k]['nome'], 'forchetta': forchette[k], 'tetto': tt,
-                'etichetta': 'tuo' if tuo else _etichetta(tt, forchette[k]), 'alternative': alternative(k),
+                'etichetta': etich, 'alternative': alternative(k),
                 'fonte': E[k].get('fonte', '')}
 
     reparti = {}
@@ -353,13 +357,18 @@ def piano(E, forchette, R, budget, slot, vincoli, ordine=('P', 'D', 'C', 'A'), c
 # ------------------------------------------------------------------ LIVE
 
 def _chiave(nome, E):
-    """Il nome come scritto nello stato dell'asta -> chiave delle stime, o None."""
+    """Il nome come scritto nello stato dell'asta -> chiave delle stime, o None.
+    Esatto, poi normalizzato, poi per parole ("Gonzalez" -> "gonzalez n") se unico."""
     if nome in E:
         return nome
     k = nomi.giocatore(nome)
     if k in E:
         return k
-    return next((x for x, g in E.items() if nomi.giocatore(g['nome']) == k), None)
+    x = next((x for x, g in E.items() if nomi.giocatore(g['nome']) == k), None)
+    if x is not None:
+        return x
+    trovati = nomi.cerca(nome, [x for x in E if not x.startswith('_')])
+    return trovati[0] if len(trovati) == 1 else None
 
 
 def termometro(venduti, forchette, E):
@@ -377,19 +386,26 @@ def termometro(venduti, forchette, E):
 
 
 def fattore_residuo(stato, forchette, E, R, slot=None):
-    """Somma zero, come fanta.mercato(): i crediti ancora in circolo nella lega divisi
-    per la spesa prevista sugli slot che restano (le mediane piu' alte fra i rimasti).
+    """Somma zero, come fanta.mercato(), sui crediti SOPRA l'offerta minima: ogni slot
+    che resta costa almeno 1, e si ridistribuisce solo il resto. Fattore = (crediti
+    in circolo - slot che restano) / somma di (mediana - 1) sui rimasti piu' cari.
     Se gli avversari strapagano bruciano crediti, e il resto costera' MENO; se
-    comprano a sconto, di piu'. Fra 0,5 e 2."""
+    comprano a sconto, di piu'. Fra 0,5 e 2. Si applica con `scala`."""
     slot = slot or R['slot']
     venduti = stato.get('venduti', [])
     fuori = {_chiave(v['nome'], E) for v in venduti}
     crediti = R['squadre'] * R['budget'] - sum(float(v['prezzo']) for v in venduti)
     slot_res = R['squadre'] * sum(slot.values()) - len(venduti)
     resto = sorted((f[1] for k, f in forchette.items() if k not in fuori), reverse=True)[:max(slot_res, 0)]
-    if not resto or not sum(resto):
+    sopra = sum(max(0.0, q - 1) for q in resto)
+    if not resto or not sopra:
         return 1.0
-    return min(2.0, max(0.5, crediti / sum(resto)))
+    return min(2.0, max(0.5, (crediti - slot_res) / sopra))
+
+
+def scala(forchetta, fattore):
+    """La forchetta scalata a somma zero: il credito minimo resta 1, si scala il resto."""
+    return tuple(max(1.0, 1 + (q - 1) * fattore) for q in forchetta)
 
 
 def ricalcola(stato, E, forchette, R, vincoli, slot=None, **kw):
@@ -397,10 +413,13 @@ def ricalcola(stato, E, forchette, R, vincoli, slot=None, **kw):
     altri spariscono, i prezzi dei rimasti si scalano a somma zero (fattore_residuo).
     Il termometro si riporta come lettura, non entra nei prezzi."""
     slot = slot or R['slot']
-    miei, altri, speso = [], set(), 0.0
+    miei, altri, speso, ignoti = [], set(), 0.0, []
     for v in stato.get('venduti', []):
         k = _chiave(v['nome'], E)
         if k is None:
+            ignoti.append(v['nome'])
+            if v.get('mio'):
+                raise ValueError(f'non riconosco un tuo acquisto: "{v["nome"]}" (scrivilo come nel listone)')
             continue
         if v.get('mio'):
             miei.append(k)
@@ -409,14 +428,17 @@ def ricalcola(stato, E, forchette, R, vincoli, slot=None, **kw):
             altri.add(k)
     temp = termometro([v for v in stato.get('venduti', []) if not v.get('mio')], forchette, E)
     fatt = fattore_residuo(stato, forchette, E, R, slot)
-    f2 = {k: tuple(x * fatt for x in f) for k, f in forchette.items() if k not in altri}
+    f2 = {k: scala(f, fatt) for k, f in forchette.items() if k not in altri}
     for v in stato.get('venduti', []):
         k = _chiave(v['nome'], E)
         if k in miei:
             f2[k] = (float(v['prezzo']),) * 3
     budget = float(stato.get('mio_budget', R['budget'])) + speso
-    P = piano(E, f2, R, budget, slot, vincoli, fissati=miei, esclusi=altri, **kw)
-    P['termometro'], P['fattore'] = temp, fatt
+    ordine = kw.get('ordine', ('P', 'D', 'C', 'A'))
+    aperto = next((r for r in ordine if sum(1 for k in miei if E[k]['ruolo'] == r) < slot[r]), None)
+    P = piano(E, f2, R, budget, slot, vincoli, fissati=miei, esclusi=altri,
+              reparti_tetto={aperto} if aperto else set(), **kw)
+    P['termometro'], P['fattore'], P['ignoti'], P['reparto_aperto'] = temp, fatt, ignoti, aperto
     return P
 
 
@@ -486,6 +508,22 @@ def vincoli_da(R):
     return v
 
 
+SOGLIA_SCOUTING = 0.3     # spec par. 5: oltre i 2 della fascia media solo con indice >= 0,3
+
+
+def con_scouting(E, vincoli, schede, oggi, avvisi=None):
+    """Le stime corrette dallo scouting (spec par. 4) e i giocatori a cui lo scouting apre
+    la fascia media (par. 5). Senza schede: stime e vincoli come sono."""
+    import scouting
+    if not schede:
+        return E, vincoli
+    ris = scouting.risolvi(schede, [k for k in E if not k.startswith('_')], avvisi)
+    E2 = scouting.applica(E, ris, oggi, avvisi)
+    ok = {k for k, s in ris.items() if not scouting.scaduta(s, oggi)
+          and scouting.indice(s)[0] >= SOGLIA_SCOUTING}
+    return E2, dict(vincoli, scouting_ok=set(vincoli.get('scouting_ok', set())) | ok)
+
+
 def _f(x):
     return f'{x:.0f}'
 
@@ -496,7 +534,8 @@ def stampa_piano(P, E, R):
           f'{P["valore_esatto"]:.1f} fantapunti attesi a giornata')
     print('  struttura: ' + ', '.join(f'{n} {k}' for k, n in P['struttura'].items()))
     print('  etichette: affare = tetto sopra la forchetta; da giocare = tetto dentro;\n'
-          '             lascia = tetto sotto (la lega lo paghera\' piu\' di quanto ti serve)')
+          '             lascia = tetto sotto (la lega lo paghera\' piu\' di quanto ti serve);\n'
+          '             dopo = reparto non ancora in chiamata, tetto al ricalcolo')
     for r, rep in P['reparti'].items():
         print(f'\n  === REPARTO {r} ({slot[r]} slot) - budget del reparto: {rep["budget"]:.0f} crediti ===')
         print(f'    {"":<2}{"giocatore":<22}{"sq":<5}{"forchetta":>13}{"tetto":>7}  {"":<12}alternative')
@@ -512,7 +551,8 @@ def stampa_piano(P, E, R):
 
 def stampa_rigioco(res, acquisti, E, R):
     print('  L\'asta del 05/09 rigiocata col piano, solo con dati di agosto. OTTIMISTA per costruzione:')
-    print('  quando rilanci a pagato+1 gli altri non reagiscono.\n')
+    print('  quando rilanci a pagato+1 gli altri non reagiscono. E le forchette dei prezzi sono')
+    print('  tarate sulla stessa asta che rigioca (ad agosto non c erano): altro ottimismo.\n')
     for riga in res['log']:
         print('    ' + riga)
     rose = {}
@@ -532,7 +572,7 @@ def stampa_rigioco(res, acquisti, E, R):
         print(f'    {i:<3}{nome[:29]:<30}{v:>8.1f}{s:>8.0f}{n:>7}')
 
 
-def esegui(R, listone_path, prezzi_path, modo='piano', candidati=12, live=None, partenze=3):
+def esegui(R, listone_path, prezzi_path, modo='piano', candidati=12, live=None, partenze=3, schede=None):
     """Il comando: stampa piano, piano live o rigioco. Ritorna il codice di uscita."""
     import json
     import os
@@ -549,6 +589,11 @@ def esegui(R, listone_path, prezzi_path, modo='piano', candidati=12, live=None, 
         return 1
     vincoli = vincoli_da(R)
     ordine = tuple((R.get('asta') or {}).get('ordine', 'PDCA'))
+    if schede and modo != 'rigioca':        # il rigioco usa solo cio' che si sapeva ad agosto
+        import datetime
+        E, vincoli = con_scouting(E, vincoli, schede, datetime.date.today().isoformat(), [])
+        print(f'  scouting: {len(schede)} schede nelle stime; fascia media aperta a '
+              f'{len(vincoli["scouting_ok"])} (indice >= {SOGLIA_SCOUTING})\n')
     try:
         if modo == 'rigioca':
             stampa_rigioco(rigioca(acquisti, E, forchette, R, vincoli, ordine), acquisti, E, R)
@@ -562,6 +607,9 @@ def esegui(R, listone_path, prezzi_path, modo='piano', candidati=12, live=None, 
                           partenze=partenze)
             print(f'  termometro: la lega paga {P["termometro"]:.2f}x il previsto; '
                   f'prezzi dei rimasti x{P["fattore"]:.2f} (somma zero)\n')
+            if P['ignoti']:
+                print('  !! non riconosco questi venduti, restano PROPONIBILI: ' + ', '.join(P['ignoti'])
+                      + '\n     scrivili come nel listone\n')
             stampa_piano(P, E, R)
         else:
             stampa_piano(piano(E, forchette, R, R['budget'], R['slot'], vincoli, ordine,
@@ -584,8 +632,10 @@ def main(argv=None):
     A = ap.parse_args(argv)
     R = regole.carica_lega(A.lega)
     fl = R.get('file', {})
+    import scouting
+    schede = scouting.carica(fl.get('scouting', 'scouting'))[0]
     return esegui(R, A.listone or fl.get('listone'), A.prezzi or fl.get('prezzi'),
-                  'rigioca' if A.rigioca else 'piano', A.candidati, A.live)
+                  'rigioca' if A.rigioca else 'piano', A.candidati, A.live, schede=schede)
 
 
 if __name__ == '__main__':

@@ -237,6 +237,44 @@ t('senza listone: messaggio, codice di errore, niente traceback',
   rc != 0 and 'listone' in out and 'Traceback' not in out, out[-300:])
 
 
+# review finale: due schede dello stesso giocatore scritte diverse -> una sola correzione
+due_nomi = {nomi.giocatore('Gonzalez N.'): dict(scheda('Gonzalez N.', spazio=2, ruolo_tattico=2, contesto=2),
+                                               data='2026-09-01'),
+            nomi.giocatore('N. Gonzalez'): dict(scheda('N. Gonzalez', spazio=2, ruolo_tattico=2, contesto=2),
+                                               data='2026-09-20')}
+Edn = scouting.applica(base, due_nomi, oggi='2026-09-30', avvisi=(av_dn := []))
+gdn = Edn[nomi.giocatore('Gonzalez N.')]
+t('due schede con nomi scritti diversi: una sola correzione (tetti rispettati), la piu recente, e lo si dice',
+  gdn['mu'] - 6.5 <= scouting.MAX_MU + 1e-9 and gdn['p'] - 0.5 <= scouting.MAX_P + 1e-9
+  and gdn['fonte'].count('scouting') == 1 and '2026-09-20' in gdn['fonte'] and any('Gonzalez' in a for a in av_dn),
+  (gdn['mu'], gdn['p'], gdn['fonte'], av_dn))
+Rv = scouting.risolvi(due_nomi, [nomi.giocatore('Gonzalez N.'), nomi.giocatore('Rossi A.')], [])
+t('risolvi: le schede per chiave delle stime', list(Rv) == [nomi.giocatore('Gonzalez N.')], list(Rv))
+
+# review finale: con la tabella dell'app le stime hanno solo i giocatori in rosa; una scheda di un
+# LIBERO del listone non e' "ignorata" (serve a gioielli e candidati), una di nessuno si'
+tabl = os.path.join(tmp, 'lega_tab')
+os.makedirs(os.path.join(tabl, 'scouting'))
+libero = next(r for r in __import__('fanta').carica(os.path.join(cart, 'listone.csv'))['giocatori'])
+with open(os.path.join(tabl, 'tab.csv'), 'w', encoding='utf-8') as f:
+    f.write('FantaSquadra;Nome;Ruolo;Squadra;MV;FM;Costo;FVMp\n')
+    for r_, n_ in (('P', 3), ('D', 8), ('C', 8), ('A', 6)):
+        for i in range(n_):
+            f.write(f'Mia;M{r_}{i};{r_};Inter;6,0;6,{i};5;{5 + i}\n')
+json.dump({'mia': 'Mia', 'giornate_giocate': 5,
+           'file': {'tabella': 'tab.csv', 'rose': 'tab.csv', 'listone': os.path.join(cart, 'listone.csv')}},
+          open(os.path.join(tabl, 'lega.json'), 'w'))
+for nome_f, nome_g in (('libero.json', libero['nome']), ('nessuno.json', 'Nessuno Mai Visto')):
+    with open(os.path.join(tabl, 'scouting', nome_f), 'w', encoding='utf-8') as f:
+        json.dump(dict(scheda(nome_g, spazio=-2), data=oggi), f)
+Ct = socio.Contesto(os.path.join(tabl, 'lega.json'))
+t('tabella in uso: la scheda di un libero del listone non e dichiarata ignorata',
+  not any(libero['nome'] in a and 'ignorat' in a for a in Ct.avvisi) and nomi.giocatore(libero['nome']) in Ct.schede,
+  [a for a in Ct.avvisi if 'scouting' in a])
+t('CONTROPROVA: la scheda di un nome che non esiste da nessuna parte si',
+  any('Nessuno Mai Visto' in a for a in Ct.avvisi), Ct.avvisi)
+
+
 # ================================================== C4. verifica per KPI
 print('\n[C4] ogni KPI misurato, solo sulle giornate DOPO la scheda')
 import verifica  # noqa: E402

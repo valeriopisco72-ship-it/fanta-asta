@@ -160,6 +160,33 @@ def _trova(scheda, k, chiavi):
                   'scheda ignorata: scrivi il nome come nel listone')
 
 
+def risolvi(schede, chiavi, avvisi=None):
+    """{chiave della scheda: scheda} -> {chiave delle stime: scheda}.
+
+    Ogni scheda si aggancia a UN giocatore (esatto, o per parole se unico); due
+    schede che finiscono sullo stesso giocatore, anche scritte diverse: vale la piu'
+    recente, e lo si dice. Nomi assenti o ambigui finiscono in `avvisi`."""
+    avvisi = avvisi if avvisi is not None else []
+    chiavi = list(chiavi)
+    out = {}
+    for k, s in sorted(schede.items()):
+        chiave, problema = _trova(s, k, chiavi)
+        if problema:
+            avvisi.append(problema)
+            continue
+        if chiave in out:
+            vecchia, nuova = sorted((out[chiave], s), key=lambda x: _data(x['data']))
+            avvisi.append(f'scouting: due schede per {chiave} ("{vecchia["nome"]}" del {vecchia["data"]}, '
+                          f'"{nuova["nome"]}" del {nuova["data"]}): vale la piu recente')
+            s = nuova
+        out[chiave] = s
+    return out
+
+
+def scaduta(scheda, oggi):
+    return (_data(oggi) - _data(scheda['data'])).days > SCADENZA_GIORNI
+
+
 def applica(E, schede, oggi, avvisi=None):
     """Una COPIA delle stime con la correzione dello scouting.
 
@@ -170,18 +197,13 @@ def applica(E, schede, oggi, avvisi=None):
     avvisi = avvisi if avvisi is not None else []
     oggi_d = _data(oggi)
     out = dict(E)
-    chiavi = [k for k in E if not k.startswith('_')]
-    for k, s in sorted(schede.items()):
+    for chiave, s in risolvi(schede, [k for k in E if not k.startswith('_')], avvisi).items():
         d = _data(s.get('data'))
         if d is None or d > oggi_d:
             continue
-        if (oggi_d - d).days > SCADENZA_GIORNI:
+        if scaduta(s, oggi):
             avvisi.append(f'scouting: scheda di {s["nome"]} scaduta ({s["data"]}, oltre {SCADENZA_GIORNI} '
                           'giorni): non applicata, rifalla')
-            continue
-        chiave, problema = _trova(s, k, chiavi)
-        if problema:
-            avvisi.append(problema)
             continue
         validi = _kpi_validi(s)
         g = dict(out[chiave])

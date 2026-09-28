@@ -287,6 +287,20 @@ t('CONTROPROVA: non la stessa coppia per tutto il reparto', len(coppie_A) > 1, c
 t('i bersagli sono esattamente la rosa del piano',
   sorted(r['k'] for rep in P_['reparti'].values() for r in rep['bersagli']) == sorted(P_['rosa']))
 
+# review finale: il piano usa lo scouting quando c'e' (spec par. 4) e lo scouting >= 0,3 apre la fascia media (par. 5)
+def scheda_(nome, **kpi):
+    return {'nome': nome, 'data': '2026-09-28', 'giornata': 5,
+            'kpi': {k: {'voto': v, 'prova': 'p', 'fonte': 'f'} for k, v in kpi.items()}}
+
+
+Es_, vs_ = piano_asta.con_scouting(E4, dict(vinc), {'A1': scheda_('A1', spazio=2, ruolo_tattico=2, contesto=2),
+                                                     'A2': scheda_('A2', spazio=1)}, oggi='2026-09-30')
+t('piano con scouting: le stime corrette entrano nel valore', Es_['A1']['mu'] > E4['A1']['mu']
+  and 'scouting' in Es_['A1'].get('fonte', ''))
+t('scouting >= 0.3 apre la fascia media, sotto no', 'A1' in vs_['scouting_ok'] and 'A2' not in vs_['scouting_ok'],
+  vs_.get('scouting_ok'))
+t('CONTROPROVA: senza schede niente cambia', piano_asta.con_scouting(E4, dict(vinc), {}, oggi='2026-09-30')[0] == E4)
+
 print('\n[B5] asta live: termometro e ricalcolo')
 stato = {'venduti': [{'nome': E4[stella]['nome'], 'prezzo': 2 * prezzi[stella], 'mio': False}], 'mio_budget': 60, 'miei': []}
 t('termometro: pagato il doppio del previsto -> 2.0',
@@ -314,6 +328,55 @@ f_caro = piano_asta.fattore_residuo(caro, forchette_finte(E4), E4, Rl, slot)
 f_scon = piano_asta.fattore_residuo(scon, forchette_finte(E4), E4, Rl, slot)
 t('somma zero: se gli altri strapagano, il resto costera MENO', f_caro < 1.0, f'{f_caro:.2f}')
 t('CONTROPROVA: se comprano a sconto, il resto costera DI PIU', f_scon > f_caro, f'{f_scon:.2f} vs {f_caro:.2f}')
+# nomi scritti a mano nello stato live (review finale): "Gonzalez" deve trovare "Gonzalez N."
+Eg = dict(E4, **{'gonzalez n': dict(G('gonzalez n', 'A', 9.5, prezzo=5.0), nome='Gonzalez N.')})
+Pg = piano_asta.ricalcola({'venduti': [{'nome': 'Gonzalez', 'prezzo': 9, 'mio': False},
+                                       {'nome': 'Sconosciuto X.', 'prezzo': 3, 'mio': False}], 'mio_budget': 60},
+                          Eg, forchette_finte(Eg), Rm, vinc, slot=slot, candidati=0, partenze=1)
+t('live: nome parziale ("Gonzalez") trovato se unico, e mai piu proposto', 'gonzalez n' not in Pg['rosa'] and
+  all(r['k'] != 'gonzalez n' and 'gonzalez n' not in r['alternative']
+      for rep in Pg['reparti'].values() for r in rep['bersagli'] + rep['altri']))
+t('live: nome non riconosciuto di un avversario -> dichiarato', Pg.get('ignoti') == ['Sconosciuto X.'], Pg.get('ignoti'))
+try:
+    piano_asta.ricalcola({'venduti': [{'nome': 'Sconosciuto X.', 'prezzo': 3, 'mio': True}], 'mio_budget': 57},
+                         Eg, forchette_finte(Eg), Rm, vinc, slot=slot, candidati=0, partenze=1)
+    ok = False
+except ValueError as e:
+    ok = 'Sconosciuto X.' in str(e)
+t('live: un MIO acquisto non riconosciuto ferma il piano e lo nomina (non libera uno slot finto)', ok)
+# live veloce (review finale): i tetti solo per il reparto in chiamata
+portieri_miei = sorted(k for k in E4 if E4[k]['ruolo'] == 'P')[:slot['P']]
+Pv = piano_asta.ricalcola({'venduti': [{'nome': k, 'prezzo': 1, 'mio': True} for k in portieri_miei],
+                           'mio_budget': 60 - len(portieri_miei)},
+                          E4, forchette_finte(E4), Rm, vinc, slot=slot, candidati=3, partenze=1)
+t('live: tetti solo nel primo reparto ancora aperto (D), gli altri "dopo"',
+  Pv['reparto_aperto'] == 'D'
+  and all(r['tetto'] is not None for r in Pv['reparti']['D']['bersagli'])
+  and all(r['tetto'] is None for x in 'CA' for r in Pv['reparti'][x]['bersagli'] + Pv['reparti'][x]['altri'])
+  and all(r['etichetta'] == 'dopo' for x in 'CA' for r in Pv['reparti'][x]['bersagli']),
+  [(x, r['k'], r['etichetta']) for x in 'CA' for r in Pv['reparti'][x]['bersagli'] + Pv['reparti'][x]['altri']])
+# fine asta (review finale): 9 crediti e 5 slot, i rimasti costano 1. La somma zero non deve
+# alzare il credito minimo, ne' portarlo sotto 1
+Ef = {'star': G('star', 'A', 8.5, prezzo=30)}
+for r_ in 'PDCA':
+    for i in range(6):
+        Ef[f'{r_}{i}'] = G(f'{r_}{i}', r_, 5.5 + .1 * i, p=0.8, prezzo=1.0)
+Ff = forchette_finte(Ef)
+fine = {'mio_budget': 9, 'venduti': [{'nome': 'star', 'prezzo': 51, 'mio': True},
+                                     {'nome': 'A5', 'prezzo': 1, 'mio': False}]}
+try:
+    Pf = piano_asta.ricalcola(fine, Ef, Ff, Rl, {}, slot=slot, candidati=0, partenze=2)
+    ok = len(Pf['rosa']) == sum(slot.values()) and Pf['costo'] <= 60
+except ValueError as e:
+    ok, Pf = False, str(e)
+t('fine asta con pochi crediti: il piano chiude la rosa coi giocatori da 1, non fallisce', ok, Pf)
+Rsc = regole.carica_lega(None, {'squadre': 2, 'budget': 60})
+molti = {'venduti': [{'nome': E4[stella]['nome'], 'prezzo': 55, 'mio': False}], 'mio_budget': 60}
+f_m = piano_asta.fattore_residuo(molti, forchette_finte(E4), E4, Rsc, slot)
+Pm2 = piano_asta.ricalcola(molti, E4, forchette_finte(E4), Rsc, vinc, slot=slot, candidati=0, partenze=1)
+minimi = [g['forchetta'][0] for rep in Pm2['reparti'].values() for g in rep['bersagli'] + rep['altri']]
+t('CONTROPROVA: con fattore sotto 1 nessun prezzo scende sotto 1 credito', f_m < 1 and min(minimi) >= 1.0,
+  (f_m, min(minimi)))
 
 print('\n[B6] rigiocare l asta con i soli dati di agosto')
 acq = [dict(k=k, nome=E4[k]['nome'], ruolo=E4[k]['ruolo'], squadra='', fvm=10.0, quota=None,
@@ -357,6 +420,8 @@ t('socio asta: ogni candidato ha un etichetta', rc == 0 and any(e in out for e i
 rc, out = lancia('socio.py', '--lega', os.path.join(lega_b7, 'lega.json'), 'asta', '--rigioca')
 t('socio asta --rigioca: log delle decisioni e confronto con la rosa vera',
   rc == 0 and 'CONFRONTO' in out and ('preso' in out or 'libero' in out), out[-600:])
+t('socio asta --rigioca: dichiara che le forchette sono tarate sulla stessa asta (ottimismo in piu)',
+  'stessa asta' in out, out[:900])
 json.dump({'mia': 'Mia', 'file': {'listone': 'manca.csv', 'prezzi': 'prezzi.csv'}},
           open(os.path.join(lega_b7, 'lega_rotta.json'), 'w'))
 rc, out = lancia('socio.py', '--lega', os.path.join(lega_b7, 'lega_rotta.json'), 'asta')
